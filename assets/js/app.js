@@ -1,17 +1,32 @@
 /* =========================================================
    DTR Manager — bundled application JavaScript
-   - Live preview on every employee field
-   - Employee photo upload
-   - Emergency contact (name + number, rendered on 2 lines)
-   - Company header text + logo upload
-   - Generated IDs search, Edit, Disable/Enable
-   - Print ID, Print QR, DTR print, Blank DTR export
-   - Backup / Backup & Reset / Reset modal (CSV backup)
-   - Clock action modal (Clock In / Clock Out) with countdown
-     and a "Ready to Clock In/Out" ↔ "Try again" scan hint loop
+   - Camera + QR scanning (jsQR)
+   - Clock In / Clock Out flow with countdown and scan loop
+   - Disabled employees are rejected at scan time
+   - Punch log in localStorage → powers the "On-Site" statistic
+   - Admin auth (setup / login), session ends on back navigation
+   - Reset Password modal
+   - Password-protected Backup & Reset modal
+   - Live ID preview, employee CRUD, printing, CSV backup
+   - DTR template: centered company header, two-line certification,
+     Employee / In Charge signature labels
    ========================================================= */
 (function () {
   'use strict';
+
+  /* ---------- Constants ---------- */
+  var STORAGE_KEYS = {
+    adminAccount: 'dtr.admin.account',
+    adminSession: 'dtr.admin.session',
+    reminder:     'dtr.reminder.text',
+    punches:      'dtr.punches',
+    disabledIds:  'dtr.disabledIds'
+  };
+
+  var DEFAULT_REMINDER =
+    'Remember to select the correct clock action (Clock In or Clock Out) ' +
+    'before logging your attendance. Verify that the camera preview shows ' +
+    'your QR code clearly.';
 
   /* ---------- Utils ---------- */
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -39,6 +54,113 @@
     return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
   }
 
+  /* ---------- Password hashing ---------- */
+  function randomSalt() {
+    var arr = new Uint8Array(16);
+    (window.crypto || window.msCrypto).getRandomValues(arr);
+    var s = '';
+    for (var i = 0; i < arr.length; i++) s += ('0' + arr[i].toString(16)).slice(-2);
+    return s;
+  }
+
+  function sha256Hex(text) {
+    if (!window.crypto || !window.crypto.subtle) {
+      return Promise.reject(new Error('Web Crypto is not available in this browser.'));
+    }
+    var enc = new TextEncoder().encode(text);
+    return window.crypto.subtle.digest('SHA-256', enc).then(function (buf) {
+      var bytes = new Uint8Array(buf);
+      var out = '';
+      for (var i = 0; i < bytes.length; i++) out += ('0' + bytes[i].toString(16)).slice(-2);
+      return out;
+    });
+  }
+
+  function hashPassword(password, salt) {
+    return sha256Hex(salt + '::' + password);
+  }
+
+  /* ---------- Storage helpers ---------- */
+  function readJson(key, fallback) {
+    try {
+      var raw = window.localStorage.getItem(key);
+      if (!raw) return fallback;
+      return JSON.parse(raw);
+    } catch (e) { return fallback; }
+  }
+  function writeJson(key, value) {
+    try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+  }
+  function readSession(key, fallback) {
+    try {
+      var raw = window.sessionStorage.getItem(key);
+      if (!raw) return fallback;
+      return JSON.parse(raw);
+    } catch (e) { return fallback; }
+  }
+  function writeSession(key, value) {
+    try { window.sessionStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+  }
+  function clearSession(key) {
+    try { window.sessionStorage.removeItem(key); } catch (e) {}
+  }
+
+  function getAdminAccount()   { return readJson(STORAGE_KEYS.adminAccount, null); }
+  function setAdminAccount(a)  { writeJson(STORAGE_KEYS.adminAccount, a); }
+  function getAdminSession()   { return readSession(STORAGE_KEYS.adminSession, null); }
+  function setAdminSession(s)  { writeSession(STORAGE_KEYS.adminSession, s); }
+  function clearAdminSession() { clearSession(STORAGE_KEYS.adminSession); }
+
+  function getReminderText() {
+    var t = window.localStorage.getItem(STORAGE_KEYS.reminder);
+    return (t && t.trim()) ? t : DEFAULT_REMINDER;
+  }
+  function setReminderText(t) {
+    try { window.localStorage.setItem(STORAGE_KEYS.reminder, t); } catch (e) {}
+  }
+
+  /* ---------- Punch log ---------- */
+  function recordPunch(employeeId, action) {
+    if (!employeeId || !action) return;
+    var all = readJson(STORAGE_KEYS.punches, {});
+    var key = datestamp();
+    if (!all[key] || !Array.isArray(all[key])) all[key] = [];
+    all[key].push({ id: employeeId, action: action, at: Date.now() });
+    writeJson(STORAGE_KEYS.punches, all);
+  }
+
+  function getTodayPunches() {
+    var all = readJson(STORAGE_KEYS.punches, {});
+    var key = datestamp();
+    return (all[key] && Array.isArray(all[key])) ? all[key] : [];
+  }
+
+  /* Counts employees whose latest action today is Clock In.
+     `disabledIds` is an optional map { "EMP-0001": true } used to
+     exclude disabled employees from the count. */
+  function countOnSiteToday(disabledIds) {
+    var punches = getTodayPunches();
+    var latest = {};
+    punches.forEach(function (p) {
+      if (p && p.id) latest[p.id] = p.action;
+    });
+    var blocked = disabledIds || {};
+    var count = 0;
+    Object.keys(latest).forEach(function (id) {
+      if (latest[id] === 'Clock In' && !blocked[id]) count++;
+    });
+    return count;
+  }
+
+  /* Returns true when the given employee ID is currently disabled.
+     Reads the mirrored list that the Admin page keeps in sync. */
+  function isEmployeeDisabled(id) {
+    if (!id) return false;
+    var list = readJson(STORAGE_KEYS.disabledIds, []);
+    if (!Array.isArray(list)) return false;
+    return list.indexOf(String(id).toUpperCase()) > -1;
+  }
+
   /* ---------- Clock ---------- */
   function updateTime() {
     var el = document.getElementById('time');
@@ -62,43 +184,83 @@
   }
   function tick() { updateTime(); updateDate(); }
 
-  /* ---------- Reminders modal ---------- */
-  function initModal() {
+  /* =========================================================
+     REMINDERS MODAL (Home)
+     ========================================================= */
+  function initRemindersModal() {
     var modalEl = document.getElementById('myModal');
     if (!modalEl) return;
     if (typeof bootstrap === 'undefined' || !bootstrap.Modal) return;
+
+    var body = document.getElementById('reminderBody');
+    if (body) {
+      var text = getReminderText();
+      body.innerHTML = escapeHtml(text).replace(/\r?\n/g, '<br>');
+    }
+
     try { new bootstrap.Modal(modalEl).show(); } catch (e) { /* ignore */ }
   }
 
   /* =========================================================
-     CLOCK ACTION MODAL
-     - No default selection (user must explicitly choose)
-     - Okay with no selection → warning, modal stays open
-     - Okay with Clock In / Clock Out → 3s countdown, then close
-     - After close → "Ready to Clock In/Out" message that cycles
-       with "Try again — No QR code detected." until the user
-       opens the modal again.
-     - Only the X button or a valid Okay+countdown can close it.
+     CAMERA (Home)
+     ========================================================= */
+  function initCamera() {
+    var video = document.getElementById('camera-js');
+    if (!video) return;
+
+    var statusEl = document.getElementById('cameraStatus');
+    function setStatus(msg, kind) {
+      if (!statusEl) return;
+      statusEl.textContent = msg || '';
+      statusEl.className = 'camera-status' + (kind ? ' is-' + kind : '');
+      statusEl.hidden = !msg;
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus('Camera API is not available in this browser.', 'error');
+      return;
+    }
+
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    }).then(function (stream) {
+      video.srcObject = stream;
+      video.play().catch(function () { /* autoplay may be blocked until gesture */ });
+      setStatus('', '');
+    }).catch(function (err) {
+      var msg = 'Camera unavailable';
+      if (err && err.name === 'NotAllowedError')      msg = 'Camera permission was denied.';
+      else if (err && err.name === 'NotFoundError')   msg = 'No camera found on this device.';
+      else if (err && err.name === 'NotReadableError')msg = 'Camera is in use by another application.';
+      setStatus(msg, 'error');
+    });
+  }
+
+  /* =========================================================
+     CLOCK ACTION MODAL + QR SCAN LOOP
      ========================================================= */
   function initClockActionModal() {
     var modalEl = document.getElementById('clockActionModal');
     if (!modalEl) return;
     if (typeof bootstrap === 'undefined' || !bootstrap.Modal) return;
 
-    var statusEl = document.getElementById('clockActionStatus');
-    var okayBtn  = document.getElementById('clockActionOkay');
-    var cameraEl = document.getElementById('camera-js');
-    var scanHint = document.getElementById('scanHint');
-    var radios   = modalEl.querySelectorAll('input[name="clockAction"]');
+    var statusEl  = document.getElementById('clockActionStatus');
+    var okayBtn   = document.getElementById('clockActionOkay');
+    var video     = document.getElementById('camera-js');
+    var scanCanvas= document.getElementById('qrScanCanvas');
+    var scanHint  = document.getElementById('scanHint');
+    var radios    = modalEl.querySelectorAll('input[name="clockAction"]');
 
-    var countdownTimer   = null;
-    var scanLoopTimer    = null;
-    var currentAction    = '';   // "Clock In" | "Clock Out"
+    var countdownTimer = null;
+    var scanRAF        = null;
+    var scanLoopTimer  = null;
+    var currentAction  = '';
+    var scanActive     = false;
 
-    // Longer wait before we declare "no QR detected"
-    var READY_WAIT_MS = 8000;
-    // How long the "Try again" message stays before cycling back
-    var RETRY_WAIT_MS = 4000;
+    var READY_WAIT_MS  = 10000;
+    var RETRY_WAIT_MS  = 3000;
+    var FAILED_WAIT_MS = 2500;
 
     function getSelectedValue() {
       for (var i = 0; i < radios.length; i++) {
@@ -108,10 +270,16 @@
     }
 
     function stopScanLoop() {
+      scanActive = false;
       if (scanLoopTimer) { clearTimeout(scanLoopTimer); scanLoopTimer = null; }
+      if (scanRAF && window.cancelAnimationFrame) {
+        window.cancelAnimationFrame(scanRAF);
+        scanRAF = null;
+      }
       currentAction = '';
       if (scanHint) scanHint.hidden = true;
-      if (cameraEl) cameraEl.classList.remove('is-ready');
+      var camWrap = document.querySelector('.camera-wrap');
+      if (camWrap) camWrap.classList.remove('is-ready');
     }
 
     function showReadyMessage() {
@@ -121,36 +289,122 @@
       scanHint.innerHTML = '<i class="fa-solid fa-qrcode me-2"></i>' +
         'Ready to ' + currentAction + ' — show your QR code to the camera.';
 
-      if (cameraEl) {
-        cameraEl.classList.remove('is-ready');
-        void cameraEl.offsetWidth;   // restart animation
-        cameraEl.classList.add('is-ready');
+      var camWrap = document.querySelector('.camera-wrap');
+      if (camWrap) {
+        camWrap.classList.remove('is-ready');
+        void camWrap.offsetWidth;
+        camWrap.classList.add('is-ready');
       }
 
-      scanLoopTimer = setTimeout(showRetryMessage, READY_WAIT_MS);
+      if (scanActive) {
+        scanLoopTimer = setTimeout(showRetryMessage, READY_WAIT_MS);
+      }
     }
 
     function showRetryMessage() {
-      if (!scanHint || !currentAction) return;
+      if (!scanHint || !currentAction || !scanActive) return;
       scanHint.hidden = false;
       scanHint.classList.add('is-retry');
       scanHint.innerHTML = '<i class="fa-solid fa-triangle-exclamation me-2"></i>' +
         'Try again — No QR code detected.';
 
-      if (cameraEl) cameraEl.classList.remove('is-ready');
+      var camWrap = document.querySelector('.camera-wrap');
+      if (camWrap) camWrap.classList.remove('is-ready');
 
       scanLoopTimer = setTimeout(showReadyMessage, RETRY_WAIT_MS);
+    }
+
+    /* Shown when a scanned QR belongs to a disabled employee.
+       Does NOT stop the scan loop — a different employee can scan next. */
+    function showFailed() {
+      if (!scanHint || !currentAction) return;
+
+      if (scanLoopTimer) { clearTimeout(scanLoopTimer); scanLoopTimer = null; }
+
+      scanHint.hidden = false;
+      scanHint.classList.add('is-retry');
+      scanHint.innerHTML = '<i class="fa-solid fa-triangle-exclamation me-2"></i>' +
+        'Invalid — QR code disabled.';
+
+      var camWrap = document.querySelector('.camera-wrap');
+      if (camWrap) camWrap.classList.remove('is-ready');
+
+      if (scanActive) {
+        scanLoopTimer = setTimeout(showReadyMessage, FAILED_WAIT_MS);
+      }
     }
 
     function startScanLoop(action) {
       stopScanLoop();
       currentAction = action;
+      scanActive = true;
       showReadyMessage();
+      startDecoding();
+    }
+
+    function startDecoding() {
+      if (!video || !scanCanvas) return;
+      if (typeof window.jsQR !== 'function') return;
+      var ctx = scanCanvas.getContext('2d');
+
+      function step() {
+        if (!scanActive) return;
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+          var w = video.videoWidth;
+          var h = video.videoHeight;
+          if (w && h) {
+            if (scanCanvas.width !== w)  scanCanvas.width  = w;
+            if (scanCanvas.height !== h) scanCanvas.height = h;
+            ctx.drawImage(video, 0, 0, w, h);
+            var imgData = ctx.getImageData(0, 0, w, h);
+            var code = window.jsQR(imgData.data, w, h, { inversionAttempts: 'dontInvert' });
+            if (code && code.data) {
+              handleQrDetected(code.data);
+              return;
+            }
+          }
+        }
+        scanRAF = window.requestAnimationFrame(step);
+      }
+      scanRAF = window.requestAnimationFrame(step);
+    }
+
+    function handleQrDetected(rawText) {
+      var payload;
+      try {
+        payload = JSON.parse(rawText);
+      } catch (e) {
+        // Non-JSON QR codes are ignored; keep scanning.
+        return;
+      }
+      if (!payload || !payload.id) return;
+
+      // Reject disabled employees — no punch, no count, no stop.
+      if (isEmployeeDisabled(payload.id)) {
+        showFailed();
+        return;
+      }
+
+      // Record the punch BEFORE stopping the loop
+      recordPunch(payload.id, currentAction);
+
+      var actionForMessage = currentAction;
+      stopScanLoop();
+
+      if (scanHint) {
+        scanHint.hidden = false;
+        scanHint.classList.remove('is-retry');
+        scanHint.innerHTML = '<i class="fa-solid fa-circle-check me-2"></i>' +
+          actionForMessage + ' recorded for ' +
+          escapeHtml(payload.fullName || payload.id) + '.';
+        setTimeout(function () {
+          if (scanHint) scanHint.hidden = true;
+        }, 4000);
+      }
     }
 
     function resetState() {
       if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
-      // No default selection
       for (var i = 0; i < radios.length; i++) radios[i].checked = false;
       if (statusEl) {
         statusEl.textContent = '';
@@ -159,7 +413,6 @@
       if (okayBtn) okayBtn.disabled = false;
     }
 
-    // When the modal is reopened, cancel any previous scan loop and clear UI
     modalEl.addEventListener('shown.bs.modal', function () {
       stopScanLoop();
       if (statusEl) {
@@ -168,14 +421,12 @@
       }
     });
 
-    // After the modal is fully hidden, reset radios / status
     modalEl.addEventListener('hidden.bs.modal', resetState);
 
     if (okayBtn) {
       okayBtn.addEventListener('click', function () {
         var selected = getSelectedValue();
 
-        // No selection → warn and keep modal open
         if (!selected) {
           if (statusEl) {
             statusEl.textContent = 'Please select Clock In or Clock Out.';
@@ -185,7 +436,6 @@
           return;
         }
 
-        // Valid selection → 3-second countdown, then close
         var remaining = 3;
         if (statusEl) {
           statusEl.classList.remove('is-warn');
@@ -214,6 +464,144 @@
         }, 1000);
       });
     }
+  }
+
+  /* =========================================================
+     AUTH — Admin page
+     ========================================================= */
+  function initAdminAuth() {
+    var modalEl = document.getElementById('authModal');
+    if (!modalEl) return;
+    if (typeof bootstrap === 'undefined' || !bootstrap.Modal) return;
+
+    var titleEl      = document.getElementById('authTitleText');
+    var subtitleEl   = document.getElementById('authSubtitle');
+    var usernameEl   = document.getElementById('authUsername');
+    var passwordEl   = document.getElementById('authPassword');
+    var confirmEl    = document.getElementById('authConfirm');
+    var setupBlock   = modalEl.querySelector('.auth-setup-only');
+    var submitTextEl = document.getElementById('authSubmitText');
+    var noticeEl     = document.getElementById('authNotice');
+    var formEl       = document.getElementById('authForm');
+
+    var bsModal = bootstrap.Modal.getOrCreateInstance(modalEl, {
+      backdrop: 'static',
+      keyboard: false
+    });
+
+    var mode = 'login';
+
+    function showNotice(msg, kind) {
+      if (!noticeEl) return;
+      noticeEl.textContent = msg || '';
+      noticeEl.className = 'auth-notice' + (kind ? ' is-' + kind : '');
+    }
+
+    function applyMode() {
+      var account = getAdminAccount();
+      mode = account ? 'login' : 'setup';
+
+      if (mode === 'setup') {
+        if (titleEl) titleEl.textContent = 'Create Admin Account';
+        if (subtitleEl) subtitleEl.textContent =
+          'No administrator account exists yet. Create one to continue.';
+        if (setupBlock) setupBlock.hidden = false;
+        if (submitTextEl) submitTextEl.textContent = 'Create account';
+        if (confirmEl) confirmEl.value = '';
+      } else {
+        if (titleEl) titleEl.textContent = 'Admin Login';
+        if (subtitleEl) subtitleEl.textContent =
+          'Enter your administrator credentials to continue.';
+        if (setupBlock) setupBlock.hidden = true;
+        if (submitTextEl) submitTextEl.textContent = 'Login';
+      }
+      showNotice('', '');
+      if (passwordEl) passwordEl.value = '';
+      if (usernameEl && mode === 'login') usernameEl.value = '';
+      setTimeout(function () {
+        if (usernameEl) usernameEl.focus();
+      }, 300);
+    }
+
+    function revealAdmin() {
+      document.body.classList.remove('auth-pending');
+      try { bsModal.hide(); } catch (e) {}
+    }
+
+    var existing = getAdminSession();
+    if (existing && existing.username) {
+      revealAdmin();
+    } else {
+      applyMode();
+      bsModal.show();
+    }
+
+    if (formEl) {
+      formEl.addEventListener('submit', function (e) {
+        e.preventDefault();
+        showNotice('', '');
+
+        var username = (usernameEl && usernameEl.value || '').trim();
+        var password = (passwordEl && passwordEl.value || '');
+        var confirm  = (confirmEl  && confirmEl.value  || '');
+
+        if (!username) { showNotice('Username is required.', 'error'); return; }
+        if (!password) { showNotice('Password is required.', 'error'); return; }
+
+        if (mode === 'setup') {
+          if (password.length < 6) {
+            showNotice('Password must be at least 6 characters.', 'error');
+            return;
+          }
+          if (password !== confirm) {
+            showNotice('Passwords do not match.', 'error');
+            return;
+          }
+          var salt = randomSalt();
+          hashPassword(password, salt).then(function (hash) {
+            setAdminAccount({ username: username, salt: salt, passwordHash: hash });
+            setAdminSession({ username: username, startedAt: Date.now() });
+            revealAdmin();
+          }).catch(function (err) {
+            showNotice(err && err.message ? err.message : 'Could not create the account.', 'error');
+          });
+          return;
+        }
+
+        var account = getAdminAccount();
+        if (!account) { applyMode(); return; }
+        if (account.username !== username) {
+          showNotice('Incorrect username or password.', 'error');
+          return;
+        }
+        hashPassword(password, account.salt).then(function (hash) {
+          if (hash !== account.passwordHash) {
+            showNotice('Incorrect username or password.', 'error');
+            return;
+          }
+          setAdminSession({ username: username, startedAt: Date.now() });
+          revealAdmin();
+        }).catch(function (err) {
+          showNotice(err && err.message ? err.message : 'Login failed.', 'error');
+        });
+      });
+    }
+
+    /* --- Session ends when the user navigates away --------------- */
+    function endSession() {
+      clearAdminSession();
+    }
+    window.addEventListener('pagehide', endSession);
+    window.addEventListener('beforeunload', endSession);
+
+    window.addEventListener('pageshow', function () {
+      var session = getAdminSession();
+      if (!session) {
+        document.body.classList.add('auth-pending');
+        applyMode();
+        try { bsModal.show(); } catch (err) {}
+      }
+    });
   }
 
   /* =========================================================
@@ -433,8 +821,8 @@
       '@page{size:A4 portrait;margin:10mm 12mm}' +
       'html,body{margin:0;padding:0;font-family:"Roboto",Arial,sans-serif;color:#1c1b1f;font-size:10px}' +
       '.wrap{max-width:100%;}' +
+      '.company-centered{text-align:center;font-size:13px;font-weight:700;margin-bottom:10px;letter-spacing:.02em}' +
       '.hdr-left{text-align:left;line-height:1.3;margin-bottom:8px}' +
-      '.hdr-left .company{font-size:12.5px;font-weight:700;margin-bottom:4px}' +
       '.emp-line{font-size:10px;line-height:1.3}' +
       '.month-line{margin:8px 0 5px;font-size:10.5px}' +
       'table{width:100%;border-collapse:collapse;margin:0 auto;table-layout:fixed}' +
@@ -443,17 +831,19 @@
       '.c-date{width:6%}' +
       '.c-time{width:14%}' +
       '.c-ut{width:16%}' +
-      '.footer{margin-top:10px;font-style:italic;text-align:center;font-size:9.5px;line-height:1.35}' +
+      '.footer{margin:10px auto 0;max-width:160mm;font-style:italic;text-align:center;font-size:9.5px;line-height:1.45}' +
       '.sig{text-align:center;margin-top:16px}' +
       '.sig .line{display:block;width:280px;margin:0 auto;border-bottom:1px solid #333;height:22px}' +
+      '.employee{margin-top:2px;text-align:center;font-size:10px}' +
       '.verified{margin-top:16px;text-align:left;font-style:normal;font-size:10px}' +
       '.verified-sig{text-align:center;margin-top:16px}' +
       '.verified-sig .line{display:block;width:280px;margin:0 auto;border-bottom:1px solid #333;height:22px}' +
       '.incharge{margin-top:2px;text-align:center;font-size:10px}' +
       '</style></head><body><div class="wrap">' +
 
+      '<div class="company-centered">' + escapeHtml(companyName) + '</div>' +
+
       '<div class="hdr-left">' +
-        '<div class="company">' + escapeHtml(companyName) + '</div>' +
         empDetailsBlock +
         '<div class="month-line">For the month of ' +
           (monthLabel
@@ -482,11 +872,12 @@
       '</table>' +
 
       '<div class="footer">' +
-        'I certify on my honor that the above is a true and correct report of the hours of work performed, ' +
+        'I certify on my honor that the above is a true and correct report of the hours of work performed,<br>' +
         'record of which was made daily at the time of arrival and departure from office.' +
       '</div>' +
 
       '<div class="sig"><span class="line"></span></div>' +
+      '<div class="employee">Employee</div>' +
 
       '<div class="verified">VERIFIED as the prescribed office hours:</div>' +
 
@@ -573,6 +964,15 @@
     var tableBody       = document.getElementById('idTableBody');
     var searchInput     = document.getElementById('idSearch');
     var employees       = [];
+
+    /* Mirror the disabled roster to localStorage so the Home page can
+       reject scans from disabled employees. */
+    function syncDisabledIds() {
+      var ids = employees
+        .filter(function (e) { return !!e.disabled; })
+        .map(function (e) { return (e.id || '').toUpperCase(); });
+      writeJson(STORAGE_KEYS.disabledIds, ids);
+    }
 
     /* ---------- Company details ---------- */
     var companyNameInput = document.getElementById('companyName');
@@ -745,6 +1145,14 @@
       if (s2) s2.textContent = String(active);
       var s3 = document.getElementById('statDisabledIds');
       if (s3) s3.textContent = String(disabled);
+
+      // On-Site — exclude any employee marked as disabled
+      var disabledIds = {};
+      employees.forEach(function (e) {
+        if (e.disabled) disabledIds[e.id] = true;
+      });
+      var s4 = document.getElementById('statOnSite');
+      if (s4) s4.textContent = String(countOnSiteToday(disabledIds));
     }
 
     function renderTable() {
@@ -880,11 +1288,156 @@
         var did = disableBtn.getAttribute('data-disable');
         var target = employees.find(function (x) { return x.id === did; });
         if (!target) return;
+
         target.disabled = !target.disabled;
+
+        if (target.disabled) {
+          // Close them out so they stop counting as on-site, even though
+          // they never physically clocked out.
+          recordPunch(target.id, 'Clock Out');
+        }
+
+        syncDisabledIds();
         renderTable();
         updateStats();
       }
     });
+
+    /* =========================================================
+       REMINDER EDITOR
+       ========================================================= */
+    var reminderInput  = document.getElementById('reminderText');
+    var reminderCount  = document.getElementById('reminderCount');
+    var reminderStatus = document.getElementById('reminderStatus');
+    var btnSaveReminder  = document.getElementById('btnSaveReminder');
+    var btnResetReminder = document.getElementById('btnResetReminder');
+
+    function updateReminderCount() {
+      if (!reminderInput || !reminderCount) return;
+      reminderCount.textContent = reminderInput.value.length + ' / 600';
+    }
+
+    function loadReminderEditor() {
+      if (!reminderInput) return;
+      reminderInput.value = getReminderText();
+      updateReminderCount();
+    }
+
+    function flashReminderStatus(msg, kind) {
+      if (!reminderStatus) return;
+      reminderStatus.textContent = msg;
+      reminderStatus.className = 'reminder-editor__status mt-2' + (kind ? ' is-' + kind : '');
+      setTimeout(function () {
+        if (reminderStatus) {
+          reminderStatus.textContent = '';
+          reminderStatus.className = 'reminder-editor__status mt-2';
+        }
+      }, 2600);
+    }
+
+    if (reminderInput) {
+      reminderInput.addEventListener('input', updateReminderCount);
+    }
+    if (btnSaveReminder) {
+      btnSaveReminder.addEventListener('click', function () {
+        var text = (reminderInput && reminderInput.value || '').trim();
+        if (!text) {
+          flashReminderStatus('Reminder text cannot be empty.', 'error');
+          return;
+        }
+        setReminderText(text);
+        flashReminderStatus('Reminder saved.', 'success');
+      });
+    }
+    if (btnResetReminder) {
+      btnResetReminder.addEventListener('click', function () {
+        setReminderText(DEFAULT_REMINDER);
+        loadReminderEditor();
+        flashReminderStatus('Reminder reset to default.', 'success');
+      });
+    }
+    loadReminderEditor();
+
+    /* =========================================================
+       RESET PASSWORD (modal)
+       ========================================================= */
+    var resetForm      = document.getElementById('resetPasswordForm');
+    var newPwEl        = document.getElementById('newPassword');
+    var confirmPwEl    = document.getElementById('confirmPassword');
+    var resetNoticeEl  = document.getElementById('resetPasswordNotice');
+    var resetModalEl   = document.getElementById('resetPasswordModal');
+
+    function showResetNotice(msg, kind) {
+      if (!resetNoticeEl) return;
+      resetNoticeEl.textContent = msg || '';
+      resetNoticeEl.className = 'auth-notice' + (kind ? ' is-' + kind : '');
+    }
+
+    // Reset the form every time the modal opens or closes.
+    if (resetModalEl) {
+      resetModalEl.addEventListener('shown.bs.modal', function () {
+        showResetNotice('', '');
+        if (newPwEl) newPwEl.value = '';
+        if (confirmPwEl) confirmPwEl.value = '';
+        setTimeout(function () { if (newPwEl) newPwEl.focus(); }, 250);
+      });
+      resetModalEl.addEventListener('hidden.bs.modal', function () {
+        showResetNotice('', '');
+        if (newPwEl) newPwEl.value = '';
+        if (confirmPwEl) confirmPwEl.value = '';
+      });
+    }
+
+    if (resetForm) {
+      resetForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        showResetNotice('', '');
+
+        var session = getAdminSession();
+        if (!session || !session.username) {
+          showResetNotice('You must be signed in to change the password.', 'error');
+          return;
+        }
+        var account = getAdminAccount();
+        if (!account) {
+          showResetNotice('No admin account found.', 'error');
+          return;
+        }
+
+        var newPw     = (newPwEl && newPwEl.value || '');
+        var confirmPw = (confirmPwEl && confirmPwEl.value || '');
+
+        if (newPw.length < 6) {
+          showResetNotice('Password must be at least 6 characters.', 'error');
+          return;
+        }
+        if (newPw !== confirmPw) {
+          showResetNotice('Passwords do not match.', 'error');
+          return;
+        }
+
+        var salt = randomSalt();
+        hashPassword(newPw, salt).then(function (hash) {
+          setAdminAccount({
+            username: account.username,
+            salt: salt,
+            passwordHash: hash
+          });
+          if (newPwEl) newPwEl.value = '';
+          if (confirmPwEl) confirmPwEl.value = '';
+          showResetNotice('Password updated successfully.', 'success');
+          setTimeout(function () {
+            showResetNotice('', '');
+            if (resetModalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+              var inst = bootstrap.Modal.getInstance(resetModalEl);
+              if (inst) inst.hide();
+            }
+          }, 1600);
+        }).catch(function (err) {
+          showResetNotice(err && err.message ? err.message : 'Could not update the password.', 'error');
+        });
+      });
+    }
 
     /* =========================================================
        DTR SECTION
@@ -951,12 +1504,20 @@
     }
 
     /* =========================================================
-       BACKUP & RESET MODAL
+       BACKUP & RESET MODAL (password protected)
        ========================================================= */
-    var modalEl = document.getElementById('backupResetModal');
+    var modalEl       = document.getElementById('backupResetModal');
+    var backupPwEl    = document.getElementById('backupPassword');
+    var backupNotice  = document.getElementById('backupNotice');
     var bsModal = (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal)
       ? bootstrap.Modal.getOrCreateInstance(modalEl)
       : null;
+
+    function showBackupNotice(msg, kind) {
+      if (!backupNotice) return;
+      backupNotice.textContent = msg || '';
+      backupNotice.className = 'auth-notice' + (kind ? ' is-' + kind : '');
+    }
 
     function hideModal() {
       if (bsModal) bsModal.hide();
@@ -976,29 +1537,96 @@
 
     function doReset() {
       employees.length = 0;
+      writeJson(STORAGE_KEYS.disabledIds, []);
       renderTable();
       updateStats();
       clearEmployeeForm();
       refreshDtrStatus();
     }
 
+    /* Verify the entered admin password against the stored hash.
+       On success, clears the field and runs the callback. */
+    function verifyAdminPassword(onVerified) {
+      showBackupNotice('', '');
+
+      var pw = (backupPwEl && backupPwEl.value) || '';
+      if (!pw) {
+        showBackupNotice('Administrator password is required.', 'error');
+        if (backupPwEl) backupPwEl.focus();
+        return;
+      }
+
+      var account = getAdminAccount();
+      if (!account) {
+        showBackupNotice('No admin account found.', 'error');
+        return;
+      }
+
+      hashPassword(pw, account.salt).then(function (hash) {
+        if (hash !== account.passwordHash) {
+          showBackupNotice('Incorrect password.', 'error');
+          if (backupPwEl) {
+            backupPwEl.value = '';
+            backupPwEl.focus();
+          }
+          return;
+        }
+        // Verified — clear the field and proceed.
+        if (backupPwEl) backupPwEl.value = '';
+        showBackupNotice('', '');
+        onVerified();
+      }).catch(function (err) {
+        showBackupNotice(
+          err && err.message ? err.message : 'Password verification failed.',
+          'error'
+        );
+      });
+    }
+
+    // Reset the password field and notice whenever the modal opens or closes.
+    if (modalEl) {
+      modalEl.addEventListener('shown.bs.modal', function () {
+        showBackupNotice('', '');
+        if (backupPwEl) {
+          backupPwEl.value = '';
+          setTimeout(function () { backupPwEl.focus(); }, 250);
+        }
+      });
+      modalEl.addEventListener('hidden.bs.modal', function () {
+        showBackupNotice('', '');
+        if (backupPwEl) backupPwEl.value = '';
+      });
+    }
+
     var btnBackupOnly = document.getElementById('btnBackupOnly');
     if (btnBackupOnly) btnBackupOnly.addEventListener('click', function () {
-      hideModal();
-      doBackup();
+      verifyAdminPassword(function () {
+        hideModal();
+        doBackup();
+      });
     });
 
     var btnBackupAndReset = document.getElementById('btnBackupAndReset');
     if (btnBackupAndReset) btnBackupAndReset.addEventListener('click', function () {
-      hideModal();
-      doBackup();
-      doReset();
+      verifyAdminPassword(function () {
+        hideModal();
+        doBackup();
+        doReset();
+      });
     });
 
     var btnResetAll = document.getElementById('btnResetAll');
     if (btnResetAll) btnResetAll.addEventListener('click', function () {
-      hideModal();
-      doReset();
+      verifyAdminPassword(function () {
+        hideModal();
+        doReset();
+      });
+    });
+
+    // Refresh the on-site count when the tab regains focus (e.g. after
+    // the Home page recorded a punch in another tab).
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) updateStats();
     });
 
     updateStats();
@@ -1011,8 +1639,11 @@
       tick();
       setInterval(tick, 1000);
     }
-    initModal();
+    initRemindersModal();
+    initCamera();
     initClockActionModal();
+
+    initAdminAuth();
     initAdmin();
   }
 
