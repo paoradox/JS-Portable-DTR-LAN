@@ -1,0 +1,43 @@
+{
+  "name": "js-portable-dtr-lan",
+  "version": "1.0.0",
+  "description": "Portable LAN-based DTR Manager with Express, SQLite, and Electron launcher support.",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js",
+    "electron": "electron .",
+    "dist": "electron-builder --win --dir"
+  },
+  "keywords": [
+    "dtr",
+    "attendance",
+    "express",
+    "sqlite",
+    "electron",
+    "lan"
+  ],
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "productName": "DTR Manager",
+    "executableName": "DTRManager",
+    "asar": false,
+    "files": [
+      "electron/**/*",
+      "package.json",
+      "!node_modules/**/*"
+    ],
+    "win": {
+      "target": "dir"
+    }
+  }
+}

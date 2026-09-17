@@ -1,0 +1,25 @@
+app-settings.json
+
+# Dependencies (reinstalled via `npm install`, never committed)
+node_modules/
+dist/
+launcher/
+
+# Generated SQLite database (created automatically on first server run)
+database/*.db
+database/*.db-shm
+database/*.db-wal
+database/*.sqlite
+dist/win-unpacked/resources/app/database/*.db
+dist/win-unpacked/resources/app/database/*.sqlite
+
+# Environment / secrets (added in Step 3 when auth introduces a session secret)
+.env
+
+# Electron packaging output
+electron/dist/
+electron/out/
+
+# OS / editor clutter
+.DS_Store
+Thumbs.db
