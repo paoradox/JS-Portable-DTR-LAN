@@ -80,7 +80,17 @@
     return sha256Hex(salt + '::' + password);
   }
 
-  /* ---------- Storage helpers ---------- */
+  /* ---------- Local + API-backed state helpers ---------- */
+  var appState = {
+    apiReady: !!window.dtrApi,
+    bootstrapLoaded: false,
+    bootstrapPromise: null,
+    adminAccount: null,
+    reminder: null,
+    employees: [],
+    stats: null
+  };
+
   function readJson(key, fallback) {
     try {
       var raw = window.localStorage.getItem(key);
@@ -88,9 +98,11 @@
       return JSON.parse(raw);
     } catch (e) { return fallback; }
   }
+
   function writeJson(key, value) {
     try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
   }
+
   function readSession(key, fallback) {
     try {
       var raw = window.sessionStorage.getItem(key);
@@ -98,35 +110,157 @@
       return JSON.parse(raw);
     } catch (e) { return fallback; }
   }
+
   function writeSession(key, value) {
     try { window.sessionStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
   }
+
   function clearSession(key) {
     try { window.sessionStorage.removeItem(key); } catch (e) {}
   }
 
-  function getAdminAccount()   { return readJson(STORAGE_KEYS.adminAccount, null); }
-  function setAdminAccount(a)  { writeJson(STORAGE_KEYS.adminAccount, a); }
-  function getAdminSession()   { return readSession(STORAGE_KEYS.adminSession, null); }
-  function setAdminSession(s)  { writeSession(STORAGE_KEYS.adminSession, s); }
-  function clearAdminSession() { clearSession(STORAGE_KEYS.adminSession); }
+  function normalizeEmployee(emp) {
+    emp = emp || {};
+
+    return {
+      id: String(emp.id || '').toUpperCase(),
+      firstName: String(emp.firstName || '').toUpperCase(),
+      middleInitial: String(emp.middleInitial || '').toUpperCase(),
+      lastName: String(emp.lastName || '').toUpperCase(),
+      position: String(emp.position || '').toUpperCase(),
+      department: String(emp.department || '').toUpperCase(),
+      notes: String(emp.notes || '').toUpperCase(),
+      ecName: String(emp.ecName || '').toUpperCase(),
+      ecPhone: String(emp.ecPhone || ''),
+      photo: String(emp.photo || ''),
+      disabled: !!emp.disabled,
+      createdAt: emp.createdAt || '',
+      updatedAt: emp.updatedAt || ''
+    };
+  }
+
+  function setEmployees(list) {
+    appState.employees = Array.isArray(list) ? list.map(normalizeEmployee) : [];
+    syncDisabledIdsFromEmployees(appState.employees);
+  }
+
+  function setStats(stats) {
+    appState.stats = stats || null;
+  }
+
+  function syncDisabledIdsFromEmployees(list) {
+    var ids = (list || [])
+      .filter(function (e) { return !!e.disabled; })
+      .map(function (e) { return (e.id || '').toUpperCase(); });
+
+    writeJson(STORAGE_KEYS.disabledIds, ids);
+  }
+
+  function loadBootstrapData() {
+    if (appState.bootstrapPromise) return appState.bootstrapPromise;
+
+    if (!window.dtrApi) {
+      appState.bootstrapLoaded = true;
+      appState.bootstrapPromise = Promise.resolve(appState);
+      return appState.bootstrapPromise;
+    }
+
+    appState.bootstrapPromise = window.dtrApi.getBootstrap()
+      .then(function (data) {
+        setEmployees(data && data.employees ? data.employees : []);
+        setStats(data && data.stats ? data.stats : null);
+        appState.reminder = data ? data.reminder : null;
+        appState.adminAccount = data ? data.adminAccount : null;
+        appState.bootstrapLoaded = true;
+        return appState;
+      })
+      .catch(function (err) {
+        console.error(err);
+        appState.bootstrapLoaded = true;
+        return appState;
+      });
+
+    return appState.bootstrapPromise;
+  }
+
+  function refreshBootstrapData() {
+    appState.bootstrapPromise = null;
+    return loadBootstrapData();
+  }
+
+  function getAdminAccount() {
+    return appState.apiReady
+      ? appState.adminAccount
+      : readJson(STORAGE_KEYS.adminAccount, null);
+  }
+
+  function setAdminAccount(account) {
+    appState.adminAccount = account;
+
+    if (!appState.apiReady) {
+      writeJson(STORAGE_KEYS.adminAccount, account);
+      return Promise.resolve(account);
+    }
+
+    return window.dtrApi.saveAdminAccount(account).then(function (data) {
+      appState.adminAccount = data && data.account ? data.account : account;
+      return appState.adminAccount;
+    });
+  }
+
+  function getAdminSession() {
+    return readSession(STORAGE_KEYS.adminSession, null);
+  }
+
+  function setAdminSession(session) {
+    writeSession(STORAGE_KEYS.adminSession, session);
+  }
+
+  function clearAdminSession() {
+    clearSession(STORAGE_KEYS.adminSession);
+  }
 
   function getReminderText() {
+    if (appState.apiReady && appState.reminder) {
+      return appState.reminder;
+    }
+
     var t = window.localStorage.getItem(STORAGE_KEYS.reminder);
     return (t && t.trim()) ? t : DEFAULT_REMINDER;
   }
-  function setReminderText(t) {
-    try { window.localStorage.setItem(STORAGE_KEYS.reminder, t); } catch (e) {}
+
+  function setReminderText(text) {
+    var value = (text && text.trim()) ? text.trim() : DEFAULT_REMINDER;
+    appState.reminder = value;
+
+    if (!appState.apiReady) {
+      try { window.localStorage.setItem(STORAGE_KEYS.reminder, value); } catch (e) {}
+      return Promise.resolve(value);
+    }
+
+    return window.dtrApi.setSetting('reminder', value).then(function (data) {
+      appState.reminder = data && data.value ? data.value : value;
+      return appState.reminder;
+    });
   }
 
   /* ---------- Punch log ---------- */
   function recordPunch(employeeId, action) {
-    if (!employeeId || !action) return;
-    var all = readJson(STORAGE_KEYS.punches, {});
-    var key = datestamp();
-    if (!all[key] || !Array.isArray(all[key])) all[key] = [];
-    all[key].push({ id: employeeId, action: action, at: Date.now() });
-    writeJson(STORAGE_KEYS.punches, all);
+    if (!employeeId || !action) return Promise.resolve(null);
+
+    if (!appState.apiReady) {
+      var all = readJson(STORAGE_KEYS.punches, {});
+      var key = datestamp();
+      if (!all[key] || !Array.isArray(all[key])) all[key] = [];
+      all[key].push({ id: employeeId, action: action, at: Date.now() });
+      writeJson(STORAGE_KEYS.punches, all);
+      return Promise.resolve(null);
+    }
+
+    return window.dtrApi.recordPunch(employeeId, action).then(function (data) {
+      if (data && data.stats) setStats(data.stats);
+      return data;
+    });
   }
 
   function getTodayPunches() {
@@ -139,6 +273,10 @@
      `disabledIds` is an optional map { "EMP-0001": true } used to
      exclude disabled employees from the count. */
   function countOnSiteToday(disabledIds) {
+    if (appState.apiReady && appState.stats) {
+      return appState.stats.onSite || 0;
+    }
+
     var punches = getTodayPunches();
     var latest = {};
     punches.forEach(function (p) {
@@ -152,13 +290,23 @@
     return count;
   }
 
-  /* Returns true when the given employee ID is currently disabled.
-     Reads the mirrored list that the Admin page keeps in sync. */
+  /* Returns true when the given employee ID is currently disabled. */
   function isEmployeeDisabled(id) {
     if (!id) return false;
+
+    var employeeId = String(id).toUpperCase();
+
+    if (appState.apiReady && appState.employees.length) {
+      var employee = appState.employees.find(function (e) {
+        return e.id === employeeId;
+      });
+
+      return !!(employee && employee.disabled);
+    }
+
     var list = readJson(STORAGE_KEYS.disabledIds, []);
     if (!Array.isArray(list)) return false;
-    return list.indexOf(String(id).toUpperCase()) > -1;
+    return list.indexOf(employeeId) > -1;
   }
 
   /* ---------- Clock ---------- */
@@ -955,7 +1103,7 @@
   /* =========================================================
      ADMIN PANEL
      ========================================================= */
-  function initAdmin() {
+    function initAdmin() {
     var form = document.getElementById('idForm');
     if (!form) return;
 
@@ -963,15 +1111,17 @@
     var qrPreviewHolder = document.getElementById('qrPreviewContainer');
     var tableBody       = document.getElementById('idTableBody');
     var searchInput     = document.getElementById('idSearch');
-    var employees       = [];
+    var employees       = appState.employees.slice();
 
-    /* Mirror the disabled roster to localStorage so the Home page can
-       reject scans from disabled employees. */
-    function syncDisabledIds() {
-      var ids = employees
-        .filter(function (e) { return !!e.disabled; })
-        .map(function (e) { return (e.id || '').toUpperCase(); });
-      writeJson(STORAGE_KEYS.disabledIds, ids);
+    function applyEmployees(nextEmployees) {
+      employees = Array.isArray(nextEmployees) ? nextEmployees.map(normalizeEmployee) : [];
+      setEmployees(employees);
+      renderTable();
+      updateStats();
+    }
+
+    function showAdminError(message) {
+      window.alert(message || 'The admin action failed.');
     }
 
     /* ---------- Company details ---------- */
@@ -1224,6 +1374,7 @@
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       if (!validate()) return;
+
       var d = readForm();
       var existedBefore = employees.some(function (x) { return x.id === d.id; });
 
@@ -1232,23 +1383,44 @@
       renderQr(qrHolder, payload);
       renderQr(qrPreviewHolder, payload);
 
-      var idx = employees.findIndex(function (x) { return x.id === d.id; });
-      if (idx >= 0) {
-        var wasDisabled = employees[idx].disabled;
-        employees[idx] = d;
-        employees[idx].disabled = wasDisabled;
-      } else {
-        employees.push(d);
+      if (!appState.apiReady) {
+        var idx = employees.findIndex(function (x) { return x.id === d.id; });
+        if (idx >= 0) {
+          var wasDisabled = employees[idx].disabled;
+          employees[idx] = d;
+          employees[idx].disabled = wasDisabled;
+        } else {
+          employees.push(d);
+        }
+
+        applyEmployees(employees);
+
+        if (!existedBefore) {
+          form.reset();
+          form.querySelectorAll('.is-invalid').forEach(function (el) { el.classList.remove('is-invalid'); });
+          setEmployeePhoto('');
+        }
+
+        return;
       }
 
-      renderTable();
-      updateStats();
+      var existing = employees.find(function (x) { return x.id === d.id; });
+      d.disabled = existing ? !!existing.disabled : false;
 
-      if (!existedBefore) {
-        form.reset();
-        form.querySelectorAll('.is-invalid').forEach(function (el) { el.classList.remove('is-invalid'); });
-        setEmployeePhoto('');
-      }
+      window.dtrApi.saveEmployee(d)
+        .then(function (data) {
+          if (data && data.stats) setStats(data.stats);
+          applyEmployees(data && data.employees ? data.employees : employees);
+
+          if (!existedBefore) {
+            form.reset();
+            form.querySelectorAll('.is-invalid').forEach(function (el) { el.classList.remove('is-invalid'); });
+            setEmployeePhoto('');
+          }
+        })
+        .catch(function (err) {
+          showAdminError(err && err.message ? err.message : 'Could not save employee.');
+        });
     });
 
     var btnReset = document.getElementById('btnReset');
@@ -1289,17 +1461,27 @@
         var target = employees.find(function (x) { return x.id === did; });
         if (!target) return;
 
-        target.disabled = !target.disabled;
+        var nextDisabled = !target.disabled;
 
-        if (target.disabled) {
-          // Close them out so they stop counting as on-site, even though
-          // they never physically clocked out.
-          recordPunch(target.id, 'Clock Out');
+        if (!appState.apiReady) {
+          target.disabled = nextDisabled;
+
+          if (target.disabled) {
+            recordPunch(target.id, 'Clock Out');
+          }
+
+          applyEmployees(employees);
+          return;
         }
 
-        syncDisabledIds();
-        renderTable();
-        updateStats();
+        window.dtrApi.setEmployeeStatus(target.id, nextDisabled)
+          .then(function (data) {
+            if (data && data.stats) setStats(data.stats);
+            applyEmployees(data && data.employees ? data.employees : employees);
+          })
+          .catch(function (err) {
+            showAdminError(err && err.message ? err.message : 'Could not update employee status.');
+          });
       }
     });
 
@@ -1345,15 +1527,26 @@
           flashReminderStatus('Reminder text cannot be empty.', 'error');
           return;
         }
-        setReminderText(text);
-        flashReminderStatus('Reminder saved.', 'success');
+
+        setReminderText(text)
+          .then(function () {
+            flashReminderStatus('Reminder saved.', 'success');
+          })
+          .catch(function (err) {
+            flashReminderStatus(err && err.message ? err.message : 'Could not save reminder.', 'error');
+          });
       });
     }
     if (btnResetReminder) {
       btnResetReminder.addEventListener('click', function () {
-        setReminderText(DEFAULT_REMINDER);
-        loadReminderEditor();
-        flashReminderStatus('Reminder reset to default.', 'success');
+        setReminderText(DEFAULT_REMINDER)
+          .then(function () {
+            loadReminderEditor();
+            flashReminderStatus('Reminder reset to default.', 'success');
+          })
+          .catch(function (err) {
+            flashReminderStatus(err && err.message ? err.message : 'Could not reset reminder.', 'error');
+          });
       });
     }
     loadReminderEditor();
@@ -1629,7 +1822,7 @@
       if (!document.hidden) updateStats();
     });
 
-    updateStats();
+    applyEmployees(employees);
     refreshPreview();
   }
 
@@ -1639,12 +1832,15 @@
       tick();
       setInterval(tick, 1000);
     }
-    initRemindersModal();
-    initCamera();
-    initClockActionModal();
 
-    initAdminAuth();
-    initAdmin();
+    loadBootstrapData().then(function () {
+      initRemindersModal();
+      initCamera();
+      initClockActionModal();
+
+      initAdminAuth();
+      initAdmin();
+    });
   }
 
   if (document.readyState === 'loading') {
