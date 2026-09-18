@@ -534,21 +534,33 @@
       }
 
       // Record the punch BEFORE stopping the loop
-      recordPunch(payload.id, currentAction);
-
       var actionForMessage = currentAction;
-      stopScanLoop();
 
-      if (scanHint) {
-        scanHint.hidden = false;
-        scanHint.classList.remove('is-retry');
-        scanHint.innerHTML = '<i class="fa-solid fa-circle-check me-2"></i>' +
-          actionForMessage + ' recorded for ' +
-          escapeHtml(payload.fullName || payload.id) + '.';
-        setTimeout(function () {
-          if (scanHint) scanHint.hidden = true;
-        }, 4000);
-      }
+      recordPunch(payload.id, currentAction)
+        .then(function () {
+          stopScanLoop();
+
+          if (scanHint) {
+            scanHint.hidden = false;
+            scanHint.classList.remove('is-retry');
+            scanHint.innerHTML = '<i class="fa-solid fa-circle-check me-2"></i>' +
+              actionForMessage + ' recorded for ' +
+              escapeHtml(payload.fullName || payload.id) + '.';
+            setTimeout(function () {
+              if (scanHint) scanHint.hidden = true;
+            }, 4000);
+          }
+        })
+        .catch(function (err) {
+          if (scanHint) {
+            scanHint.hidden = false;
+            scanHint.classList.add('is-retry');
+            scanHint.innerHTML = '<i class="fa-solid fa-triangle-exclamation me-2"></i>' +
+              escapeHtml(err && err.message ? err.message : 'Could not record attendance.');
+          }
+
+          startDecoding();
+        });
     }
 
     function resetState() {
