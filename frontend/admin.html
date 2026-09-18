@@ -263,7 +263,7 @@
 
                             <div class="d-flex flex-wrap gap-2 mt-4">
                                 <button type="submit" class="btn btn-primary"><i class="fa-solid fa-qrcode me-2"></i>Generate ID &amp; QR</button>
-                                <button type="button" class="btn btn-outline-secondary" id="btnReset"><i class="fa-solid fa-rotate-left me-2"></i>Reset</button>
+                                <button type="button" class="btn btn-outline-secondary" id="btnReset"><i class="fa-solid fa-rotate-left me-2"></i>Clear</button>
                                 <button type="button" class="btn btn-outline-primary" id="btnPrint"><i class="fa-solid fa-print me-2"></i>Print ID</button>
                                 <button type="button" class="btn btn-outline-primary" id="btnPrintQr"><i class="fa-solid fa-qrcode me-2"></i>Print QR</button>
                             </div>
@@ -404,14 +404,19 @@
                             <div class="form-text">DTR is monthly based — pick a month and year.</div>
                         </div>
                         <div class="col-12 col-md-6">
-                            <div class="d-flex flex-wrap gap-2">
-                                <button type="button" class="btn btn-primary" id="btnPrintDtr">
-                                    <i class="fa-solid fa-print me-2"></i>Print DTR
-                                </button>
-                                <button type="button" class="btn btn-outline-primary" id="btnExportBlankDtr">
-                                    <i class="fa-solid fa-file-arrow-down me-2"></i>Export Blank DTR
-                                </button>
-                                <button type="button" class="btn btn-outline-secondary" id="btnBackupReset"
+                            <div class="dtr-button-row">
+                                <div class="dtr-button-row__left">
+                                    <button type="button" class="btn btn-primary" id="btnPrintDtr">
+                                        <i class="fa-solid fa-print me-2"></i>Print DTR
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary" id="btnExportBlankDtr">
+                                        <i class="fa-solid fa-file-arrow-down me-2"></i>Export Blank DTR
+                                    </button>
+                                    <button type="button" class="btn btn-outline-primary" id="btnExportAllDtr">
+                                        <i class="fa-solid fa-users me-2"></i>Export All Employees DTR (Monthly)
+                                    </button>
+                                </div>
+                                <button type="button" class="btn btn-outline-danger" id="btnBackupReset"
                                         data-bs-toggle="modal" data-bs-target="#backupResetModal">
                                     <i class="fa-solid fa-database me-2"></i>Backup and Reset
                                 </button>
@@ -486,7 +491,7 @@
                     <div class="backup-confirm-block">
                         <label for="backupPassword" class="form-label">Administrator password</label>
                         <input type="password" class="form-control text-center" id="backupPassword"
-                               name="backupPassword" placeholder="enter password to confirm"
+                               name="backupPassword" placeholder="Enter administrator password"
                                autocomplete="current-password" maxlength="128" />
                         <div class="form-text text-center">Required for any of the actions below.</div>
                     </div>
