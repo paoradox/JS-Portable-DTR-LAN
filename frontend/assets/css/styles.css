@@ -897,6 +897,48 @@ hr { border-top-color: var(--md-divider); opacity: 1; }
 .reminder-editor__status.is-success { color: var(--md-success); }
 .reminder-editor__status.is-error   { color: var(--md-error); }
 
+/* ---------- Generated IDs pagination ---------- */
+.id-table-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .875rem 1rem;
+  border-top: 1px solid var(--md-divider);
+  background: var(--md-surface);
+}
+
+.id-table-pager__info,
+.id-table-pager__page {
+  font-size: .8125rem;
+  color: var(--md-on-surface-muted);
+  font-weight: 500;
+}
+
+.id-table-pager__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.form-control.is-readonly,
+.form-control[readonly] {
+  background: var(--md-surface-2);
+  color: var(--md-on-surface-muted);
+  cursor: not-allowed;
+}
+
+@media (max-width: 575.98px) {
+  .id-table-pager {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .id-table-pager__actions {
+    justify-content: space-between;
+  }
+}
+
 /* ---------- DTR section ---------- */
 .dtr-section .card-header { font-weight: 500; }
 

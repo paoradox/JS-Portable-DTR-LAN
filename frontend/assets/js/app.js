@@ -1124,6 +1124,9 @@
     var tableBody       = document.getElementById('idTableBody');
     var searchInput     = document.getElementById('idSearch');
     var employees       = appState.employees.slice();
+    var currentPage     = 1;
+    var pageSize        = 50;
+    var editingEmployeeId = '';
 
     function applyEmployees(nextEmployees) {
       employees = Array.isArray(nextEmployees) ? nextEmployees.map(normalizeEmployee) : [];
@@ -1319,8 +1322,10 @@
 
     function renderTable() {
       if (!tableBody) return;
+
       var q = (searchInput ? searchInput.value : '').trim().toUpperCase();
       var list = employees;
+
       if (q) {
         list = employees.filter(function (emp) {
           return (emp.id || '').toUpperCase().indexOf(q) > -1 ||
@@ -1329,20 +1334,33 @@
                  (emp.department || '').toUpperCase().indexOf(q) > -1;
         });
       }
+
+      var totalPages = Math.max(1, Math.ceil(list.length / pageSize));
+      if (currentPage > totalPages) currentPage = totalPages;
+      if (currentPage < 1) currentPage = 1;
+
+      var startIndex = (currentPage - 1) * pageSize;
+      var pageItems = list.slice(startIndex, startIndex + pageSize);
+
       if (!list.length) {
         tableBody.innerHTML =
           '<tr><td colspan="5" class="text-center text-muted py-4">' +
           (q ? 'No matching IDs.' : 'No IDs generated yet.') +
           '</td></tr>';
+        renderPagination(0, 0, 0);
         return;
       }
+
       tableBody.innerHTML = '';
-      list.forEach(function (emp) {
+
+      pageItems.forEach(function (emp) {
         var tr = document.createElement('tr');
         if (emp.disabled) tr.classList.add('table-secondary');
+
         var statusBadge = emp.disabled
-          ? '<span class="badge bg-secondary">Disabled</span>'
+          ? '<span class="badge bg-danger">Disabled</span>'
           : '<span class="badge bg-success">Active</span>';
+
         tr.innerHTML =
           '<td class="text-nowrap">' + escapeHtml(emp.id) + '</td>' +
           '<td>' + escapeHtml(fullName(emp)) + '</td>' +
@@ -1360,8 +1378,59 @@
               '<i class="fa-solid ' + (emp.disabled ? 'fa-circle-check' : 'fa-ban') + '"></i>' +
             '</button>' +
           '</td>';
+
         tableBody.appendChild(tr);
       });
+
+      renderPagination(list.length, startIndex + 1, startIndex + pageItems.length);
+    }
+
+        function renderPagination(totalItems, startItem, endItem) {
+      var tableCard = tableBody ? tableBody.closest('.card') : null;
+      if (!tableCard) return;
+
+      var pager = document.getElementById('idTablePager');
+
+      if (!pager) {
+        pager = document.createElement('div');
+        pager.id = 'idTablePager';
+        pager.className = 'id-table-pager';
+        tableCard.appendChild(pager);
+      }
+
+      if (!totalItems || totalItems <= pageSize) {
+        pager.innerHTML = totalItems
+          ? '<span class="text-muted small">Showing ' + totalItems + ' generated ID' + (totalItems === 1 ? '' : 's') + '.</span>'
+          : '';
+        return;
+      }
+
+      var totalPages = Math.ceil(totalItems / pageSize);
+
+      pager.innerHTML =
+        '<div class="id-table-pager__info">Showing ' + startItem + '–' + endItem + ' of ' + totalItems + '</div>' +
+        '<div class="id-table-pager__actions">' +
+          '<button type="button" class="btn btn-outline-secondary btn-sm" id="idPrevPage" ' + (currentPage <= 1 ? 'disabled' : '') + '>Previous</button>' +
+          '<span class="id-table-pager__page">Page ' + currentPage + ' of ' + totalPages + '</span>' +
+          '<button type="button" class="btn btn-outline-secondary btn-sm" id="idNextPage" ' + (currentPage >= totalPages ? 'disabled' : '') + '>Next</button>' +
+        '</div>';
+
+      var prev = document.getElementById('idPrevPage');
+      var next = document.getElementById('idNextPage');
+
+      if (prev) {
+        prev.addEventListener('click', function () {
+          currentPage--;
+          renderTable();
+        });
+      }
+
+      if (next) {
+        next.addEventListener('click', function () {
+          currentPage++;
+          renderTable();
+        });
+      }
     }
 
     ['empFirst', 'empLast', 'empMi', 'empId'].forEach(function (id) {
@@ -1372,13 +1441,30 @@
       });
     });
 
-    if (searchInput) searchInput.addEventListener('input', renderTable);
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        currentPage = 1;
+        renderTable();
+      });
+    }
 
     function clearEmployeeForm() {
       form.reset();
-      form.querySelectorAll('.is-invalid').forEach(function (el) { el.classList.remove('is-invalid'); });
+      editingEmployeeId = '';
+
+      var idInput = document.getElementById('empId');
+      if (idInput) {
+        idInput.readOnly = false;
+        idInput.classList.remove('is-readonly');
+      }
+
+      form.querySelectorAll('.is-invalid').forEach(function (el) {
+        el.classList.remove('is-invalid');
+      });
+
       setEmployeePhoto('');
       renderIdCard({});
+
       if (qrHolder) qrHolder.innerHTML = QR_PLACEHOLDER;
       if (qrPreviewHolder) qrPreviewHolder.innerHTML = QR_PLACEHOLDER;
     }
@@ -1450,7 +1536,14 @@
         var id = editBtn.getAttribute('data-edit');
         var emp = employees.find(function (x) { return x.id === id; });
         if (!emp) return;
-        document.getElementById('empId').value       = emp.id;
+        editingEmployeeId = emp.id;
+
+        var idInput = document.getElementById('empId');
+        if (idInput) {
+          idInput.value = emp.id;
+          idInput.readOnly = true;
+          idInput.classList.add('is-readonly');
+        }
         document.getElementById('empFirst').value    = emp.firstName || '';
         document.getElementById('empMi').value       = emp.middleInitial || '';
         document.getElementById('empLast').value     = emp.lastName || '';
