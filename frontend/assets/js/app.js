@@ -1743,8 +1743,9 @@
     var dtrSearch      = document.getElementById('dtrEmpSearch');
     var dtrMonth       = document.getElementById('dtrMonth');
     var dtrStatus      = document.getElementById('dtrEmpStatus');
-    var btnPrintDtr    = document.getElementById('btnPrintDtr');
-    var btnExportBlank = document.getElementById('btnExportBlankDtr');
+    var btnPrintDtr       = document.getElementById('btnPrintDtr');
+    var btnExportBlank    = document.getElementById('btnExportBlankDtr');
+    var btnExportAllDtr   = document.getElementById('btnExportAllDtr');
 
     function findEmployeeById(raw) {
       var q = (raw || '').trim().toUpperCase();
@@ -1785,19 +1786,38 @@
           if (dtrSearch) dtrSearch.focus();
           return;
         }
+
         var monthVal = dtrMonth ? dtrMonth.value : '';
         if (!monthVal) {
           window.alert('Please select a month for the DTR.');
           if (dtrMonth) dtrMonth.focus();
           return;
         }
-        openDtrPrint(emp, monthVal);
+
+        window.location.href =
+          '/api/dtr/export?month=' + encodeURIComponent(monthVal) +
+          '&employeeId=' + encodeURIComponent(emp.id);
       });
     }
 
     if (btnExportBlank) {
       btnExportBlank.addEventListener('click', function () {
-        openDtrPrint(null, '');
+        window.location.href = '/api/dtr/blank-template';
+      });
+    }
+
+        if (btnExportAllDtr) {
+      btnExportAllDtr.addEventListener('click', function () {
+        var monthVal = dtrMonth ? dtrMonth.value : '';
+
+        if (!monthVal) {
+          window.alert('Please select a month before exporting all employee DTR files.');
+          if (dtrMonth) dtrMonth.focus();
+          return;
+        }
+
+        window.location.href =
+          '/api/dtr/export-all?month=' + encodeURIComponent(monthVal);
       });
     }
 

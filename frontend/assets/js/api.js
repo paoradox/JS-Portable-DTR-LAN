@@ -86,6 +86,20 @@
       return request('/api/punches/today');
     },
 
+    getMonthlyPunches: function (month, employeeId) {
+      var query = '?month=' + encodeURIComponent(month || '');
+
+      if (employeeId) {
+        query += '&employeeId=' + encodeURIComponent(employeeId);
+      }
+
+      return request('/api/punches/monthly' + query);
+    },
+
+    getMonthlyDtr: function (month) {
+      return request('/api/dtr/monthly?month=' + encodeURIComponent(month || ''));
+    },
+
     getSetting: function (key) {
       return request('/api/settings/' + encodeURIComponent(key));
     },

@@ -5,9 +5,11 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const { db, DB_PATH } = require('./db');
+const ExcelJS = require('exceljs');
 
 const DEFAULT_PORT = 3000;
 const FRONTEND_DIR = path.join(__dirname, '..', 'frontend');
+const TEMPLATE_PATH = path.join(FRONTEND_DIR, 'template', 'Blank_DTR_Template.xlsx');
 
 function normalizePort(value) {
   const port = parseInt(value, 10);
@@ -194,13 +196,6 @@ function setEmployeeDisabled(id, disabled) {
     WHERE id = ?
   `).run(disabled ? 1 : 0, employeeId);
 
-  if (disabled) {
-    db.prepare(`
-      INSERT INTO punches (employee_id, action)
-      VALUES (?, 'Clock Out')
-    `).run(employeeId);
-  }
-
   return getEmployeeById(employeeId);
 }
 
@@ -326,6 +321,218 @@ function getTodayPunches() {
     WHERE date(punched_at, 'localtime') = date('now', 'localtime')
     ORDER BY punched_at ASC, id ASC
   `).all();
+}
+
+function isValidMonth(value) {
+  return /^\d{4}-\d{2}$/.test(cleanText(value));
+}
+
+function getMonthlyPunches(month, employeeId) {
+  const cleanMonth = cleanText(month);
+
+  if (!isValidMonth(cleanMonth)) {
+    const err = new Error('Month must use YYYY-MM format.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const params = [cleanMonth];
+  let employeeFilter = '';
+
+  if (employeeId) {
+    employeeFilter = 'AND employee_id = ?';
+    params.push(cleanText(employeeId).toUpperCase());
+  }
+
+  return db.prepare(`
+    SELECT
+      id,
+      employee_id AS employeeId,
+      action,
+      punched_at AS punchedAt,
+      date(punched_at, 'localtime') AS punchDate,
+      time(punched_at, 'localtime') AS punchTime
+    FROM punches
+    WHERE strftime('%Y-%m', punched_at, 'localtime') = ?
+      ${employeeFilter}
+    ORDER BY employee_id ASC, punched_at ASC, id ASC
+  `).all(...params);
+}
+
+function groupMonthlyPunchesByEmployee(month) {
+  const employees = getEmployees();
+  const punches = getMonthlyPunches(month, '');
+
+  const punchesByEmployee = {};
+  punches.forEach(function (punch) {
+    if (!punchesByEmployee[punch.employeeId]) {
+      punchesByEmployee[punch.employeeId] = [];
+    }
+
+    punchesByEmployee[punch.employeeId].push(punch);
+  });
+
+  return employees.map(function (employee) {
+    return {
+      employee: employee,
+      punches: punchesByEmployee[employee.id] || []
+    };
+  });
+}
+
+function formatEmployeeName(employee) {
+  const middle = employee.middleInitial
+    ? cleanText(employee.middleInitial).replace(/\.+$/, '') + '.'
+    : '';
+
+  return [employee.firstName, middle, employee.lastName]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function monthLabel(month) {
+  const [year, monthNumber] = cleanText(month).split('-').map(Number);
+  const date = new Date(year, monthNumber - 1, 1);
+
+  return date.toLocaleString('en-US', {
+    month: 'long',
+    year: 'numeric'
+  });
+}
+
+function timeToExcelValue(punchedAt) {
+  const timePart = cleanText(punchedAt).split(' ')[1] || '';
+  const parts = timePart.split(':').map(Number);
+
+  if (parts.length < 2 || !Number.isFinite(parts[0]) || !Number.isFinite(parts[1])) {
+    return null;
+  }
+
+  const hours = parts[0];
+  const minutes = parts[1];
+  const seconds = Number.isFinite(parts[2]) ? parts[2] : 0;
+
+  return (hours * 3600 + minutes * 60 + seconds) / 86400;
+}
+
+function dayFromPunch(punch) {
+  const datePart = cleanText(punch.punchedAt).split(' ')[0];
+  const day = Number(datePart.split('-')[2]);
+
+  return Number.isFinite(day) ? day : 0;
+}
+
+function buildDtrDayMap(punches) {
+  const byDay = {};
+
+  punches.forEach(function (punch) {
+    const day = dayFromPunch(punch);
+    if (!day) return;
+
+    if (!byDay[day]) {
+      byDay[day] = {
+        clockIns: [],
+        clockOuts: []
+      };
+    }
+
+    if (punch.action === 'Clock In') {
+      byDay[day].clockIns.push(punch);
+    }
+
+    if (punch.action === 'Clock Out') {
+      byDay[day].clockOuts.push(punch);
+    }
+  });
+
+  return byDay;
+}
+
+function fillDtrWorksheet(worksheet, employee, month, punches) {
+  const fullName = employee ? formatEmployeeName(employee) : '';
+  const label = month ? monthLabel(month) : '';
+  const byDay = buildDtrDayMap(punches || []);
+
+  worksheet.getCell('D8').value = fullName;
+  worksheet.getCell('D11').value = label;
+  worksheet.getCell('D55').value = fullName;
+
+  for (let day = 1; day <= 31; day += 1) {
+    const rowNumber = 16 + day;
+    const dayPunches = byDay[day] || { clockIns: [], clockOuts: [] };
+
+    const values = [
+      dayPunches.clockIns[0] ? timeToExcelValue(dayPunches.clockIns[0].punchedAt) : null,
+      dayPunches.clockOuts[0] ? timeToExcelValue(dayPunches.clockOuts[0].punchedAt) : null,
+      dayPunches.clockIns[1] ? timeToExcelValue(dayPunches.clockIns[1].punchedAt) : null,
+      dayPunches.clockOuts[1] ? timeToExcelValue(dayPunches.clockOuts[1].punchedAt) : null
+    ];
+
+    ['D', 'E', 'F', 'G'].forEach(function (col, index) {
+      const cell = worksheet.getCell(col + rowNumber);
+      cell.value = values[index];
+      cell.numFmt = 'hh:mm';
+    });
+  }
+}
+
+function safeSheetName(value, fallback) {
+  return cleanText(value || fallback)
+    .replace(/[\\/?*[\]:]/g, '-')
+    .slice(0, 31) || fallback;
+}
+
+async function buildSingleDtrWorkbook(employee, month, punches) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(TEMPLATE_PATH);
+
+  const worksheet = workbook.worksheets[0];
+  worksheet.name = safeSheetName(employee ? employee.id : 'Blank DTR', 'DTR');
+
+  fillDtrWorksheet(worksheet, employee, month, punches || []);
+
+  workbook.calcProperties.fullCalcOnLoad = true;
+
+  return workbook;
+}
+
+async function buildAllEmployeesDtrWorkbook(month) {
+  const templateWorkbook = new ExcelJS.Workbook();
+  await templateWorkbook.xlsx.readFile(TEMPLATE_PATH);
+
+  const templateSheet = templateWorkbook.worksheets[0];
+  const records = groupMonthlyPunchesByEmployee(month);
+  const outputWorkbook = new ExcelJS.Workbook();
+
+  records.forEach(function (record, index) {
+    const sheetName = safeSheetName(record.employee.id, 'Employee ' + (index + 1));
+    const worksheet = outputWorkbook.addWorksheet(sheetName);
+
+    worksheet.model = JSON.parse(JSON.stringify(templateSheet.model));
+    worksheet.name = sheetName;
+
+    fillDtrWorksheet(worksheet, record.employee, month, record.punches);
+  });
+
+  outputWorkbook.calcProperties.fullCalcOnLoad = true;
+
+  return outputWorkbook;
+}
+
+async function sendWorkbook(res, workbook, filename) {
+  res.setHeader(
+    'Content-Type',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  );
+  res.setHeader(
+    'Content-Disposition',
+    'attachment; filename="' + filename.replace(/"/g, '') + '"'
+  );
+
+  await workbook.xlsx.write(res);
+  res.end();
 }
 
 function countOnSiteToday() {
@@ -493,6 +700,70 @@ function createApp(ioRef) {
       punches: getTodayPunches(),
       stats: getStats()
     });
+  });
+
+    app.get('/api/punches/monthly', function (req, res) {
+    res.json({
+      month: cleanText(req.query.month),
+      employeeId: cleanText(req.query.employeeId).toUpperCase(),
+      punches: getMonthlyPunches(req.query.month, req.query.employeeId)
+    });
+  });
+
+  app.get('/api/dtr/monthly', function (req, res) {
+    res.json({
+      month: cleanText(req.query.month),
+      records: groupMonthlyPunchesByEmployee(req.query.month)
+    });
+  });
+
+    app.get('/api/dtr/blank-template', function (req, res) {
+    res.download(TEMPLATE_PATH, 'Blank_DTR_Template.xlsx');
+  });
+
+  app.get('/api/dtr/export', async function (req, res, next) {
+    try {
+      const month = cleanText(req.query.month);
+      const employeeId = cleanText(req.query.employeeId).toUpperCase();
+
+      if (!isValidMonth(month)) {
+        const err = new Error('Month must use YYYY-MM format.');
+        err.statusCode = 400;
+        throw err;
+      }
+
+      const employee = getEmployeeById(employeeId);
+      if (!employee) {
+        const err = new Error('Employee not found.');
+        err.statusCode = 404;
+        throw err;
+      }
+
+      const punches = getMonthlyPunches(month, employeeId);
+      const workbook = await buildSingleDtrWorkbook(employee, month, punches);
+
+      await sendWorkbook(res, workbook, employeeId + '_DTR_' + month + '.xlsx');
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get('/api/dtr/export-all', async function (req, res, next) {
+    try {
+      const month = cleanText(req.query.month);
+
+      if (!isValidMonth(month)) {
+        const err = new Error('Month must use YYYY-MM format.');
+        err.statusCode = 400;
+        throw err;
+      }
+
+      const workbook = await buildAllEmployeesDtrWorkbook(month);
+
+      await sendWorkbook(res, workbook, 'All_Employees_DTR_' + month + '.xlsx');
+    } catch (err) {
+      next(err);
+    }
   });
 
   app.use(express.static(FRONTEND_DIR));

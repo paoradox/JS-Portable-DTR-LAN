@@ -98,7 +98,7 @@
                         <i class="fa-solid fa-key me-2"></i>Reset Password
                     </button>
                 </div>
-                <p class="page-subtitle mb-0 mt-2">Manage employees, generate ID cards, and issue QR codes for attendance.</p>
+                <p class="page-subtitle mb-0 mt-2">Manage employees, generate ID cards, issue QR codes and print attendance.</p>
             </div>
             <a href="index.html" class="action-btn" title="Back to Home" aria-label="Back to clock">
                 <img src="assets/img/left-arrow.gif" alt="" />
@@ -380,6 +380,23 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Backup & Reset section -->
+                <div class="backup-reset-section no-print mt-4">
+                    <div class="section-title">Backup &amp; Reset</div>
+                    <div class="card">
+                        <div class="card-body">
+                            <p class="text-muted small mb-3">
+                                Download all employee roster and attendance as a CSV backup, or clear all records.
+                                Administrator password is required to confirm any action.
+                            </p>
+                            <button type="button" class="btn btn-outline-danger w-100" id="btnBackupReset"
+                                    data-bs-toggle="modal" data-bs-target="#backupResetModal">
+                                <i class="fa-solid fa-database me-2"></i>Backup &amp; Reset
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -416,10 +433,6 @@
                                         <i class="fa-solid fa-users me-2"></i>Export All Employees DTR (Monthly)
                                     </button>
                                 </div>
-                                <button type="button" class="btn btn-outline-danger" id="btnBackupReset"
-                                        data-bs-toggle="modal" data-bs-target="#backupResetModal">
-                                    <i class="fa-solid fa-database me-2"></i>Backup and Reset
-                                </button>
                             </div>
                         </div>
                     </div>
@@ -481,11 +494,11 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="mb-3">Choose an action for <strong>all DTR records</strong>:</p>
+                    <p class="mb-3">Choose an action for <strong>all records</strong>:</p>
                     <ul class="mb-3">
-                        <li><strong>Backup</strong> — download all records as a CSV file.</li>
-                        <li><strong>Backup &amp; Reset</strong> — download a CSV, then clear all records.</li>
-                        <li><strong>Reset</strong> — clear all records without downloading.</li>
+                        <li><strong>Backup IDs &amp; DTR</strong> — download employee roster and attendance as a CSV file.</li>
+                        <li><strong>Backup &amp; Reset (All)</strong> — download employee roster and attendance as a CSV file, then clear all records.</li>
+                        <li><strong>Reset (All)</strong> — clear all records without backup.</li>
                     </ul>
 
                     <div class="backup-confirm-block">
@@ -504,13 +517,13 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-primary" id="btnBackupOnly">
-                        <i class="fa-solid fa-download me-2"></i>Backup
+                        <i class="fa-solid fa-download me-2"></i>Backup IDs &amp; DTR
                     </button>
                     <button type="button" class="btn btn-warning" id="btnBackupAndReset">
-                        <i class="fa-solid fa-file-export me-2"></i>Backup &amp; Reset
+                        <i class="fa-solid fa-file-export me-2"></i>Backup &amp; Reset (All)
                     </button>
                     <button type="button" class="btn btn-danger" id="btnResetAll">
-                        <i class="fa-solid fa-trash me-2"></i>Reset
+                        <i class="fa-solid fa-trash me-2"></i>Reset (All)
                     </button>
                 </div>
             </div>

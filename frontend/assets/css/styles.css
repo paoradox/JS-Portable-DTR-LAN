@@ -972,26 +972,10 @@ hr { border-top-color: var(--md-divider); opacity: 1; }
   flex-basis: 100%;
 }
 
-/* Right side — Backup & Reset stretches to fill remaining width and height */
-.dtr-button-row > .btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  padding: 0 1.25rem;
-  line-height: 1;
-  white-space: nowrap;
-  /* No fixed height — inherits full height from align-items: stretch on parent */
-}
-
 /* Stack everything on small screens */
 @media (max-width: 767.98px) {
   .dtr-button-row { flex-direction: column; }
   .dtr-button-row__left > .btn { flex: 1 1 100%; }
-  .dtr-button-row > .btn {
-    min-height: 44px;
-    padding: .5rem 1.25rem;
-  }
 }
 
 /* ---------- Utilities ---------- */
