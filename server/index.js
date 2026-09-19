@@ -6,6 +6,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const { db, DB_PATH } = require('./db');
 const ExcelJS = require('exceljs');
+const { ZipArchive } = require('archiver');
 
 const DEFAULT_PORT = 3000;
 const FRONTEND_DIR = path.join(__dirname, '..', 'frontend');
@@ -498,27 +499,46 @@ async function buildSingleDtrWorkbook(employee, month, punches) {
   return workbook;
 }
 
-async function buildAllEmployeesDtrWorkbook(month) {
-  const templateWorkbook = new ExcelJS.Workbook();
-  await templateWorkbook.xlsx.readFile(TEMPLATE_PATH);
+async function buildSingleDtrBuffer(employee, month, punches) {
+  const workbook = await buildSingleDtrWorkbook(employee, month, punches);
+  return workbook.xlsx.writeBuffer();
+}
 
-  const templateSheet = templateWorkbook.worksheets[0];
+function safeFileName(value) {
+  return cleanText(value)
+    .replace(/[<>:"/\\|?*]/g, '-')
+    .replace(/\s+/g, '_')
+    .slice(0, 120);
+}
+
+async function sendAllEmployeesDtrZip(res, month) {
   const records = groupMonthlyPunchesByEmployee(month);
-  const outputWorkbook = new ExcelJS.Workbook();
 
-  records.forEach(function (record, index) {
-    const sheetName = safeSheetName(record.employee.id, 'Employee ' + (index + 1));
-    const worksheet = outputWorkbook.addWorksheet(sheetName);
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader(
+    'Content-Disposition',
+    'attachment; filename="All_Employees_DTR_' + month + '.zip"'
+  );
 
-    worksheet.model = JSON.parse(JSON.stringify(templateSheet.model));
-    worksheet.name = sheetName;
-
-    fillDtrWorksheet(worksheet, record.employee, month, record.punches);
+  const archive = new ZipArchive({
+    zlib: { level: 9 }
   });
 
-  outputWorkbook.calcProperties.fullCalcOnLoad = true;
+  archive.on('error', function (err) {
+    throw err;
+  });
 
-  return outputWorkbook;
+  archive.pipe(res);
+
+  for (const record of records) {
+    const employeeId = safeFileName(record.employee.id || 'Employee');
+    const buffer = await buildSingleDtrBuffer(record.employee, month, record.punches);
+
+    archive.append(Buffer.from(buffer), {
+      name: employeeId + '_DTR_' + month + '.xlsx'
+    });
+  }
+  await archive.finalize();
 }
 
 async function sendWorkbook(res, workbook, filename) {
@@ -758,9 +778,7 @@ function createApp(ioRef) {
         throw err;
       }
 
-      const workbook = await buildAllEmployeesDtrWorkbook(month);
-
-      await sendWorkbook(res, workbook, 'All_Employees_DTR_' + month + '.xlsx');
+      await sendAllEmployeesDtrZip(res, month);
     } catch (err) {
       next(err);
     }
