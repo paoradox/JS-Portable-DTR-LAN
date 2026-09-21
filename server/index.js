@@ -663,6 +663,12 @@ function buildBackupCsv() {
   return lines.join('\r\n');
 }
 
+function clearDtrRecords() {
+  db.exec(`
+    DELETE FROM punches;
+  `);
+}
+
 function clearAllRecords() {
   db.exec(`
     DELETE FROM punches;
@@ -909,6 +915,18 @@ function createApp(ioRef) {
     );
 
     res.send('\uFEFF' + csv);
+  });
+
+  app.post('/api/reset-dtr', function (req, res) {
+    clearDtrRecords();
+
+    broadcastDataChanged('reset-dtr', {});
+
+    res.json({
+      ok: true,
+      employees: getEmployees(),
+      stats: getStats()
+    });
   });
 
   app.post('/api/reset-all', function (req, res) {

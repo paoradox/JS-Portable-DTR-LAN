@@ -1848,7 +1848,27 @@
       window.location.href = '/api/backup.csv';
     }
 
-    function doReset() {
+    function applyResetResult(data) {
+      if (data && data.stats) setStats(data.stats);
+      applyEmployees(data && data.employees ? data.employees : employees);
+      clearEmployeeForm();
+      refreshDtrStatus();
+    }
+
+    function doResetDtrOnly() {
+      if (!window.dtrApi || !window.dtrApi.resetDtr) {
+        setStats(null);
+        updateStats();
+        refreshDtrStatus();
+        return Promise.resolve();
+      }
+
+      return window.dtrApi.resetDtr().then(function (data) {
+        applyResetResult(data);
+      });
+    }
+
+    function doResetAll() {
       if (!window.dtrApi || !window.dtrApi.resetAll) {
         employees.length = 0;
         writeJson(STORAGE_KEYS.disabledIds, []);
@@ -1860,10 +1880,7 @@
       }
 
       return window.dtrApi.resetAll().then(function (data) {
-        if (data && data.stats) setStats(data.stats);
-        applyEmployees(data && data.employees ? data.employees : []);
-        clearEmployeeForm();
-        refreshDtrStatus();
+        applyResetResult(data);
       });
     }
 
@@ -1929,6 +1946,25 @@
       });
     });
 
+    var btnResetDtrOnly = document.getElementById('btnResetDtrOnly');
+    if (btnResetDtrOnly) btnResetDtrOnly.addEventListener('click', function () {
+      verifyAdminPassword(function () {
+        if (!window.confirm('Reset DTR attendance records only? Employee IDs will be kept.')) {
+          return;
+        }
+
+        hideModal();
+
+        doResetDtrOnly()
+          .then(function () {
+            window.alert('DTR attendance records were cleared. Employee IDs were kept.');
+          })
+          .catch(function (err) {
+            window.alert(err && err.message ? err.message : 'Could not reset DTR records.');
+          });
+      });
+    });
+
     var btnBackupAndReset = document.getElementById('btnBackupAndReset');
     if (btnBackupAndReset) btnBackupAndReset.addEventListener('click', function () {
       verifyAdminPassword(function () {
@@ -1936,7 +1972,7 @@
         doBackup();
 
         setTimeout(function () {
-          doReset().catch(function (err) {
+          doResetAll().catch(function (err) {
             window.alert(err && err.message ? err.message : 'Could not reset records.');
           });
         }, 800);
@@ -1952,7 +1988,7 @@
 
         hideModal();
 
-        doReset()
+        doResetAll()
           .then(function () {
             window.alert('All employee IDs and attendance records were cleared.');
           })
