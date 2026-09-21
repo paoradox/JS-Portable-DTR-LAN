@@ -30,16 +30,20 @@
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "productName": "DTR Manager",
-    "executableName": "DTRManager",
-    "asar": false,
-    "files": [
-      "electron/**/*",
-      "package.json",
-      "!node_modules/**/*"
-    ],
-    "win": {
-      "target": "dir"
-    }
+  "productName": "DTR Manager",
+  "executableName": "DTRManager",
+  "asar": false,
+  "files": [
+    "electron/**/*",
+    "package.json",
+    "!node_modules/**/*",
+    "!server/**/*",
+    "!frontend/**/*",
+    "!database/**/*",
+    "!app-settings.json"
+  ],
+  "win": {
+    "target": "dir"
   }
+}
 }
