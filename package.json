@@ -2,7 +2,7 @@
   "name": "js-portable-dtr-lan",
   "version": "1.0.0",
   "description": "Portable LAN-based DTR Manager with Express, SQLite, and Electron launcher support.",
-  "main": "server/index.js",
+  "main": "electron/main.js",
   "scripts": {
     "start": "node server/index.js",
     "dev": "node server/index.js",

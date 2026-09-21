@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DTR Manager Launcher</title>
+  <link rel="stylesheet" href="control.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="header">
+      <div>
+        <h1>DTR Manager</h1>
+        <p id="status">Starting server...</p>
+      </div>
+    </header>
+
+    <section class="section">
+      <h2>Open Pages</h2>
+      <div class="shortcut-list" id="shortcuts"></div>
+    </section>
+
+    <section class="section">
+      <h2>Connection URLs</h2>
+      <div class="url-list" id="urlList"></div>
+    </section>
+
+    <section class="section">
+      <h2>Port</h2>
+      <div class="port-row">
+        <input id="portInput" type="number" min="1" max="65535" />
+        <button id="changePortBtn" type="button">Change</button>
+      </div>
+      <div class="message" id="portMessage" role="status" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <script src="control.js"></script>
+</body>
+</html>
