@@ -1176,7 +1176,7 @@
     var empPhotoPreview  = document.getElementById('empPhotoPreview');
     var currentPhotoData = '';
 
-    function resizeEmployeePhoto(file) {
+        function resizeEmployeePhoto(file) {
       return new Promise(function (resolve, reject) {
         var reader = new FileReader();
 
@@ -1191,23 +1191,26 @@
             canvas.width = size;
             canvas.height = size;
 
-            var sourceSize = Math.min(img.width, img.height);
-            var sourceX = Math.floor((img.width - sourceSize) / 2);
-            var sourceY = Math.floor((img.height - sourceSize) / 2);
+            // White background prevents transparent/letterboxed areas from
+            // becoming black when exported as JPEG.
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, size, size);
+
+            var scale = Math.min(size / img.width, size / img.height);
+            var drawWidth = Math.round(img.width * scale);
+            var drawHeight = Math.round(img.height * scale);
+            var drawX = Math.round((size - drawWidth) / 2);
+            var drawY = Math.round((size - drawHeight) / 2);
 
             ctx.drawImage(
               img,
-              sourceX,
-              sourceY,
-              sourceSize,
-              sourceSize,
-              0,
-              0,
-              size,
-              size
+              drawX,
+              drawY,
+              drawWidth,
+              drawHeight
             );
 
-            resolve(canvas.toDataURL('image/jpeg', 0.82));
+            resolve(canvas.toDataURL('image/jpeg', 0.86));
           };
 
           img.onerror = function () {
@@ -1938,9 +1941,9 @@
     function doBackup() {
       showDownloadProcessing(
         'Preparing backup...',
-        'Downloading employee IDs and DTR time logs as an Excel workbook.'
+        'Downloading employee IDs, employee photos and DTR attendance as a ZIP backup.'
       );
-      window.location.href = '/api/backup.xlsx';
+      window.location.href = '/api/backup.zip';
     }
 
     function applyResetResult(data) {

@@ -756,6 +756,195 @@ async function buildBackupWorkbook() {
   return workbook;
 }
 
+function photoExtensionFromDataUrl(dataUrl) {
+  var match = cleanText(dataUrl).match(/^data:image\/([a-zA-Z0-9.+-]+);base64,/);
+
+  if (!match) return 'jpg';
+
+  var type = match[1].toLowerCase();
+
+  if (type === 'jpeg') return 'jpg';
+  if (type === 'svg+xml') return 'svg';
+
+  return type;
+}
+
+function photoBufferFromDataUrl(dataUrl) {
+  var text = cleanText(dataUrl);
+  var commaIndex = text.indexOf(',');
+
+  if (commaIndex < 0) return null;
+
+  return Buffer.from(text.slice(commaIndex + 1), 'base64');
+}
+
+async function buildEmployeeIdsWorkbook() {
+  const employees = getEmployees();
+  const workbook = new ExcelJS.Workbook();
+
+  workbook.creator = 'DTR Manager';
+  workbook.created = new Date();
+
+  const sheet = workbook.addWorksheet('Employee IDs');
+  sheet.columns = [
+    { header: 'Employee ID', key: 'id', width: 18 },
+    { header: 'First Name', key: 'firstName', width: 22 },
+    { header: 'Middle Initial', key: 'middleInitial', width: 16 },
+    { header: 'Last Name', key: 'lastName', width: 22 },
+    { header: 'Full Name', key: 'fullName', width: 34 },
+    { header: 'Position', key: 'position', width: 24 },
+    { header: 'Department', key: 'department', width: 24 },
+    { header: 'QR Notes', key: 'notes', width: 28 },
+    { header: 'Emergency Contact Name', key: 'ecName', width: 32 },
+    { header: 'Emergency Contact Phone', key: 'ecPhone', width: 22 },
+    { header: 'Status', key: 'status', width: 14 },
+    { header: 'Has Photo', key: 'hasPhoto', width: 12 },
+    { header: 'Photo File', key: 'photoFile', width: 28 },
+    { header: 'Created At', key: 'createdAt', width: 22 },
+    { header: 'Updated At', key: 'updatedAt', width: 22 }
+  ];
+
+  employees.forEach(function (employee) {
+    var photoFile = '';
+
+    if (employee.photo) {
+      photoFile = 'photos/' + safeFileName(employee.id) + '.' + photoExtensionFromDataUrl(employee.photo);
+    }
+
+    sheet.addRow({
+      id: employee.id,
+      firstName: employee.firstName,
+      middleInitial: employee.middleInitial,
+      lastName: employee.lastName,
+      fullName: formatEmployeeName(employee),
+      position: employee.position,
+      department: employee.department,
+      notes: employee.notes,
+      ecName: employee.ecName,
+      ecPhone: employee.ecPhone,
+      status: employee.disabled ? 'Disabled' : 'Active',
+      hasPhoto: employee.photo ? 'Yes' : 'No',
+      photoFile: photoFile,
+      createdAt: employee.createdAt,
+      updatedAt: employee.updatedAt
+    });
+  });
+
+  styleBackupSheet(sheet);
+
+  return workbook;
+}
+
+async function buildDtrTimeLogsWorkbook() {
+  const punches = getAllPunches();
+  const workbook = new ExcelJS.Workbook();
+
+  workbook.creator = 'DTR Manager';
+  workbook.created = new Date();
+
+  const sheet = workbook.addWorksheet('DTR Time Logs');
+  sheet.columns = [
+    { header: 'Punch ID', key: 'id', width: 12 },
+    { header: 'Employee ID', key: 'employeeId', width: 18 },
+    { header: 'Full Name', key: 'fullName', width: 34 },
+    { header: 'Position', key: 'position', width: 24 },
+    { header: 'Department', key: 'department', width: 24 },
+    { header: 'Action', key: 'action', width: 14 },
+    { header: 'Punched At', key: 'punchedAt', width: 22 }
+  ];
+
+  punches.forEach(function (punch) {
+    sheet.addRow({
+      id: punch.id,
+      employeeId: punch.employeeId,
+      fullName: formatEmployeeName({
+        firstName: punch.firstName || '',
+        middleInitial: punch.middleInitial || '',
+        lastName: punch.lastName || ''
+      }),
+      position: punch.position || '',
+      department: punch.department || '',
+      action: punch.action,
+      punchedAt: punch.punchedAt
+    });
+  });
+
+  styleBackupSheet(sheet);
+
+  return workbook;
+}
+
+function styleBackupSheet(sheet) {
+  sheet.getRow(1).font = { bold: true };
+  sheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  sheet.eachRow(function (row) {
+    row.eachCell(function (cell) {
+      cell.border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+      cell.alignment = {
+        vertical: 'top',
+        wrapText: false
+      };
+    });
+  });
+}
+
+async function workbookToBuffer(workbook) {
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+async function sendBackupZip(res) {
+  const employees = getEmployees();
+  const employeeWorkbook = await buildEmployeeIdsWorkbook();
+  const logsWorkbook = await buildDtrTimeLogsWorkbook();
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader(
+    'Content-Disposition',
+    'attachment; filename="DTR_Backup_' + getTodayKey() + '.zip"'
+  );
+
+  const archive = new ZipArchive({
+    zlib: { level: 9 }
+  });
+
+  archive.on('error', function (err) {
+    throw err;
+  });
+
+  archive.pipe(res);
+
+  archive.append(await workbookToBuffer(employeeWorkbook), {
+    name: 'Employee IDs.xlsx'
+  });
+
+  archive.append(await workbookToBuffer(logsWorkbook), {
+    name: 'DTR Time Logs.xlsx'
+  });
+
+  employees.forEach(function (employee) {
+    if (!employee.photo) return;
+
+    var photoBuffer = photoBufferFromDataUrl(employee.photo);
+    if (!photoBuffer) return;
+
+    var ext = photoExtensionFromDataUrl(employee.photo);
+
+    archive.append(photoBuffer, {
+      name: 'photos/' + safeFileName(employee.id) + '.' + ext
+    });
+  });
+
+  await archive.finalize();
+}
+
 function clearDtrRecords() {
   db.exec(`
     DELETE FROM punches;
@@ -998,10 +1187,9 @@ function createApp(ioRef) {
     }
   });
 
-  app.get('/api/backup.xlsx', async function (req, res, next) {
+  app.get('/api/backup.zip', async function (req, res, next) {
     try {
-      const workbook = await buildBackupWorkbook();
-      await sendWorkbook(res, workbook, 'DTR_Backup_' + getTodayKey() + '.xlsx');
+      await sendBackupZip(res);
     } catch (err) {
       next(err);
     }

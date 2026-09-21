@@ -353,9 +353,10 @@ hr { border-top-color: var(--md-divider); opacity: 1; }
 .photo-upload__preview img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   object-position: center center;
   display: block;
+  background: #fff;
 }
 .photo-upload__placeholder {
   font-size: .75rem;
@@ -707,9 +708,10 @@ hr { border-top-color: var(--md-divider); opacity: 1; }
 .id-card__photo img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   object-position: center center;
   display: block;
+  background: #fff;
 }
 
 .id-card__info { flex: 1 1 auto; min-width: 0; align-self: center; }
