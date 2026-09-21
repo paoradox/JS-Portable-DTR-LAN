@@ -1176,6 +1176,55 @@
     var empPhotoPreview  = document.getElementById('empPhotoPreview');
     var currentPhotoData = '';
 
+    function resizeEmployeePhoto(file) {
+      return new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+
+        reader.onload = function (readerEvent) {
+          var img = new Image();
+
+          img.onload = function () {
+            var size = 360;
+            var canvas = document.createElement('canvas');
+            var ctx = canvas.getContext('2d');
+
+            canvas.width = size;
+            canvas.height = size;
+
+            var sourceSize = Math.min(img.width, img.height);
+            var sourceX = Math.floor((img.width - sourceSize) / 2);
+            var sourceY = Math.floor((img.height - sourceSize) / 2);
+
+            ctx.drawImage(
+              img,
+              sourceX,
+              sourceY,
+              sourceSize,
+              sourceSize,
+              0,
+              0,
+              size,
+              size
+            );
+
+            resolve(canvas.toDataURL('image/jpeg', 0.82));
+          };
+
+          img.onerror = function () {
+            reject(new Error('Could not read the selected photo.'));
+          };
+
+          img.src = readerEvent.target.result;
+        };
+
+        reader.onerror = function () {
+          reject(new Error('Could not load the selected photo.'));
+        };
+
+        reader.readAsDataURL(file);
+      });
+    }
+
     function setEmployeePhoto(dataUrl) {
       currentPhotoData = dataUrl || '';
       if (empPhotoPreview) {
@@ -1196,14 +1245,21 @@
       empPhotoInput.addEventListener('change', function () {
         var file = empPhotoInput.files && empPhotoInput.files[0];
         if (!file) return;
+
         if (!/^image\//i.test(file.type)) {
           window.alert('Please choose an image file.');
           empPhotoInput.value = '';
           return;
         }
-        var reader = new FileReader();
-        reader.onload = function (ev) { setEmployeePhoto(ev.target.result); };
-        reader.readAsDataURL(file);
+
+        resizeEmployeePhoto(file)
+          .then(function (dataUrl) {
+            setEmployeePhoto(dataUrl);
+          })
+          .catch(function (err) {
+            window.alert(err && err.message ? err.message : 'Could not process the selected photo.');
+            empPhotoInput.value = '';
+          });
       });
     }
 
