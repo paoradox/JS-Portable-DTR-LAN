@@ -457,7 +457,8 @@ function fillDtrWorksheet(worksheet, employee, month, punches) {
   const byDay = buildDtrDayMap(punches || []);
 
   worksheet.getCell('D8').value = fullName;
-  worksheet.getCell('D11').value = label;
+  worksheet.getCell('D11').value = 'For the month of';
+  worksheet.getCell('F11').value = label;
   worksheet.getCell('D55').value = fullName;
 
   for (let day = 1; day <= 31; day += 1) {
@@ -661,6 +662,98 @@ function buildBackupCsv() {
   });
 
   return lines.join('\r\n');
+}
+
+async function buildBackupWorkbook() {
+  const employees = getEmployees();
+  const punches = getAllPunches();
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'DTR Manager';
+  workbook.created = new Date();
+
+  const employeeSheet = workbook.addWorksheet('Employee IDs');
+  employeeSheet.columns = [
+    { header: 'Employee ID', key: 'id', width: 18 },
+    { header: 'First Name', key: 'firstName', width: 22 },
+    { header: 'Middle Initial', key: 'middleInitial', width: 16 },
+    { header: 'Last Name', key: 'lastName', width: 22 },
+    { header: 'Full Name', key: 'fullName', width: 34 },
+    { header: 'Position', key: 'position', width: 24 },
+    { header: 'Department', key: 'department', width: 24 },
+    { header: 'QR Notes', key: 'notes', width: 28 },
+    { header: 'Emergency Contact Name', key: 'ecName', width: 32 },
+    { header: 'Emergency Contact Phone', key: 'ecPhone', width: 22 },
+    { header: 'Status', key: 'status', width: 14 },
+    { header: 'Has Photo', key: 'hasPhoto', width: 12 },
+    { header: 'Created At', key: 'createdAt', width: 22 },
+    { header: 'Updated At', key: 'updatedAt', width: 22 }
+  ];
+
+  employees.forEach(function (employee) {
+    employeeSheet.addRow({
+      id: employee.id,
+      firstName: employee.firstName,
+      middleInitial: employee.middleInitial,
+      lastName: employee.lastName,
+      fullName: formatEmployeeName(employee),
+      position: employee.position,
+      department: employee.department,
+      notes: employee.notes,
+      ecName: employee.ecName,
+      ecPhone: employee.ecPhone,
+      status: employee.disabled ? 'Disabled' : 'Active',
+      hasPhoto: employee.photo ? 'Yes' : 'No',
+      createdAt: employee.createdAt,
+      updatedAt: employee.updatedAt
+    });
+  });
+
+  const punchSheet = workbook.addWorksheet('DTR Time Logs');
+  punchSheet.columns = [
+    { header: 'Punch ID', key: 'id', width: 12 },
+    { header: 'Employee ID', key: 'employeeId', width: 18 },
+    { header: 'Full Name', key: 'fullName', width: 34 },
+    { header: 'Position', key: 'position', width: 24 },
+    { header: 'Department', key: 'department', width: 24 },
+    { header: 'Action', key: 'action', width: 14 },
+    { header: 'Punched At', key: 'punchedAt', width: 22 }
+  ];
+
+  punches.forEach(function (punch) {
+    punchSheet.addRow({
+      id: punch.id,
+      employeeId: punch.employeeId,
+      fullName: formatEmployeeName({
+        firstName: punch.firstName || '',
+        middleInitial: punch.middleInitial || '',
+        lastName: punch.lastName || ''
+      }),
+      position: punch.position || '',
+      department: punch.department || '',
+      action: punch.action,
+      punchedAt: punch.punchedAt
+    });
+  });
+
+  [employeeSheet, punchSheet].forEach(function (sheet) {
+    sheet.getRow(1).font = { bold: true };
+    sheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+    sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+    sheet.eachRow(function (row) {
+      row.eachCell(function (cell) {
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+      });
+    });
+  });
+
+  return workbook;
 }
 
 function clearDtrRecords() {
@@ -905,16 +998,13 @@ function createApp(ioRef) {
     }
   });
 
-    app.get('/api/backup.csv', function (req, res) {
-    const csv = buildBackupCsv();
-
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader(
-      'Content-Disposition',
-      'attachment; filename="DTR_Backup_' + getTodayKey() + '.csv"'
-    );
-
-    res.send('\uFEFF' + csv);
+  app.get('/api/backup.xlsx', async function (req, res, next) {
+    try {
+      const workbook = await buildBackupWorkbook();
+      await sendWorkbook(res, workbook, 'DTR_Backup_' + getTodayKey() + '.xlsx');
+    } catch (err) {
+      next(err);
+    }
   });
 
   app.post('/api/reset-dtr', function (req, res) {

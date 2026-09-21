@@ -1794,6 +1794,10 @@
           return;
         }
 
+          showDownloadProcessing(
+          'Preparing DTR...',
+          'Exporting the selected employee DTR file.'
+        );
         window.location.href =
           '/api/dtr/export?month=' + encodeURIComponent(monthVal) +
           '&employeeId=' + encodeURIComponent(emp.id);
@@ -1803,6 +1807,10 @@
     if (btnExportBlank) {
       btnExportBlank.addEventListener('click', function () {
         window.location.href = '/api/dtr/blank-template';
+          showDownloadProcessing(
+          'Preparing blank DTR...',
+          'Downloading the blank DTR template.'
+        );
       });
     }
 
@@ -1816,6 +1824,10 @@
           return;
         }
 
+          showDownloadProcessing(
+          'Preparing monthly DTR files...',
+          'Exporting all employee DTR files. This may take a moment for many records.'
+        );
         window.location.href =
           '/api/dtr/export-all?month=' + encodeURIComponent(monthVal);
       });
@@ -1844,8 +1856,35 @@
       }
     }
 
+        function showProcessing(title, message) {
+      var overlay = document.getElementById('processingOverlay');
+      var titleEl = document.getElementById('processingTitle');
+      var messageEl = document.getElementById('processingMessage');
+
+      if (titleEl) titleEl.textContent = title || 'Processing...';
+      if (messageEl) messageEl.textContent = message || 'Please wait while the app finishes this action.';
+      if (overlay) overlay.hidden = false;
+    }
+
+    function hideProcessing() {
+      var overlay = document.getElementById('processingOverlay');
+      if (overlay) overlay.hidden = true;
+    }
+
+    function showDownloadProcessing(title, message) {
+      showProcessing(title, message);
+
+      setTimeout(function () {
+        hideProcessing();
+      }, 2500);
+    }
+
     function doBackup() {
-      window.location.href = '/api/backup.csv';
+      showDownloadProcessing(
+        'Preparing backup...',
+        'Downloading employee IDs and DTR time logs as an Excel workbook.'
+      );
+      window.location.href = '/api/backup.xlsx';
     }
 
     function applyResetResult(data) {
@@ -1955,11 +1994,18 @@
 
         hideModal();
 
+        showProcessing(
+          'Resetting DTR records...',
+          'Clearing attendance records while keeping employee IDs.'
+        );
+
         doResetDtrOnly()
           .then(function () {
+            hideProcessing();
             window.alert('DTR attendance records were cleared. Employee IDs were kept.');
           })
           .catch(function (err) {
+            hideProcessing();
             window.alert(err && err.message ? err.message : 'Could not reset DTR records.');
           });
       });
@@ -1972,10 +2018,21 @@
         doBackup();
 
         setTimeout(function () {
-          doResetAll().catch(function (err) {
-            window.alert(err && err.message ? err.message : 'Could not reset records.');
-          });
-        }, 800);
+          showProcessing(
+            'Resetting all records...',
+            'Clearing employee IDs and attendance records.'
+          );
+
+          doResetAll()
+            .then(function () {
+              hideProcessing();
+              window.alert('Backup started. All employee IDs and attendance records were cleared.');
+            })
+            .catch(function (err) {
+              hideProcessing();
+              window.alert(err && err.message ? err.message : 'Could not reset records.');
+            });
+        }, 1200);
       });
     });
 
@@ -1988,11 +2045,18 @@
 
         hideModal();
 
+        showProcessing(
+          'Resetting all records...',
+          'Clearing employee IDs and attendance records.'
+        );
+
         doResetAll()
           .then(function () {
+            hideProcessing();
             window.alert('All employee IDs and attendance records were cleared.');
           })
           .catch(function (err) {
+            hideProcessing();
             window.alert(err && err.message ? err.message : 'Could not reset records.');
           });
       });

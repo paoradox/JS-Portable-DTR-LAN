@@ -513,7 +513,7 @@
                     <div class="auth-notice" id="backupNotice" role="alert" aria-live="assertive"></div>
 
                     <p class="mb-0 mt-3 text-muted small">
-                        Backups are saved as CSV. This format is universally readable by Excel, Google Sheets, and any text editor.
+                        Backups are saved as an Excel workbook with separate sheets for Employee IDs and DTR Time Logs.
                     </p>
                 </div>
                 <div class="modal-footer">
@@ -535,6 +535,15 @@
     </div>
 
     </div><!-- /auth-guard -->
+
+    <!-- Processing overlay -->
+    <div class="processing-overlay" id="processingOverlay" hidden>
+        <div class="processing-overlay__box" role="status" aria-live="polite">
+            <div class="processing-spinner" aria-hidden="true"></div>
+            <div class="processing-overlay__title" id="processingTitle">Processing...</div>
+            <div class="processing-overlay__message" id="processingMessage">Please wait while the app finishes this action.</div>
+        </div>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
     <script src="/socket.io/socket.io.js"></script>
