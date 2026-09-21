@@ -555,6 +555,121 @@ async function sendWorkbook(res, workbook, filename) {
   res.end();
 }
 
+function csvCell(value) {
+  if (value == null) return '';
+
+  const text = String(value);
+
+  if (/[",\r\n]/.test(text)) {
+    return '"' + text.replace(/"/g, '""') + '"';
+  }
+
+  return text;
+}
+
+function getAllPunches() {
+  return db.prepare(`
+    SELECT
+      p.id,
+      p.employee_id AS employeeId,
+      p.action,
+      p.punched_at AS punchedAt,
+      e.first_name AS firstName,
+      e.middle_initial AS middleInitial,
+      e.last_name AS lastName,
+      e.position,
+      e.department
+    FROM punches p
+    LEFT JOIN employees e ON e.id = p.employee_id
+    ORDER BY p.punched_at ASC, p.id ASC
+  `).all();
+}
+
+function buildBackupCsv() {
+  const employees = getEmployees();
+  const punches = getAllPunches();
+
+  const lines = [];
+
+  lines.push(['DTR Manager Backup'].map(csvCell).join(','));
+  lines.push(['Generated At', new Date().toISOString()].map(csvCell).join(','));
+  lines.push([]);
+
+  lines.push(['Employees'].map(csvCell).join(','));
+  lines.push([
+    'Employee ID',
+    'First Name',
+    'Middle Initial',
+    'Last Name',
+    'Full Name',
+    'Position',
+    'Department',
+    'QR Notes',
+    'Emergency Contact Name',
+    'Emergency Contact Phone',
+    'Status',
+    'Has Photo',
+    'Created At',
+    'Updated At'
+  ].map(csvCell).join(','));
+
+  employees.forEach(function (employee) {
+    lines.push([
+      employee.id,
+      employee.firstName,
+      employee.middleInitial,
+      employee.lastName,
+      formatEmployeeName(employee),
+      employee.position,
+      employee.department,
+      employee.notes,
+      employee.ecName,
+      employee.ecPhone,
+      employee.disabled ? 'Disabled' : 'Active',
+      employee.photo ? 'Yes' : 'No',
+      employee.createdAt,
+      employee.updatedAt
+    ].map(csvCell).join(','));
+  });
+
+  lines.push([]);
+  lines.push(['Attendance Punches'].map(csvCell).join(','));
+  lines.push([
+    'Punch ID',
+    'Employee ID',
+    'Full Name',
+    'Position',
+    'Department',
+    'Action',
+    'Punched At'
+  ].map(csvCell).join(','));
+
+  punches.forEach(function (punch) {
+    lines.push([
+      punch.id,
+      punch.employeeId,
+      formatEmployeeName({
+        firstName: punch.firstName || '',
+        middleInitial: punch.middleInitial || '',
+        lastName: punch.lastName || ''
+      }),
+      punch.position || '',
+      punch.department || '',
+      punch.action,
+      punch.punchedAt
+    ].map(csvCell).join(','));
+  });
+
+  return lines.join('\r\n');
+}
+
+function clearAllRecords() {
+  db.exec(`
+    DELETE FROM punches;
+    DELETE FROM employees;
+  `);
+}
+
 function countOnSiteToday() {
   const punches = getTodayPunches();
   const latestByEmployee = new Map();
@@ -782,6 +897,30 @@ function createApp(ioRef) {
     } catch (err) {
       next(err);
     }
+  });
+
+    app.get('/api/backup.csv', function (req, res) {
+    const csv = buildBackupCsv();
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="DTR_Backup_' + getTodayKey() + '.csv"'
+    );
+
+    res.send('\uFEFF' + csv);
+  });
+
+  app.post('/api/reset-all', function (req, res) {
+    clearAllRecords();
+
+    broadcastDataChanged('reset-all', {});
+
+    res.json({
+      ok: true,
+      employees: getEmployees(),
+      stats: getStats()
+    });
   });
 
   app.use(express.static(FRONTEND_DIR));

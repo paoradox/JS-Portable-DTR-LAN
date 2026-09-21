@@ -1845,21 +1845,26 @@
     }
 
     function doBackup() {
-      if (!employees.length) {
-        window.alert('There are no records to back up.');
-        return;
-      }
-      var csv = buildEmployeesCsv(employees);
-      downloadCsv('DTR_Backup_' + datestamp() + '.csv', csv);
+      window.location.href = '/api/backup.csv';
     }
 
     function doReset() {
-      employees.length = 0;
-      writeJson(STORAGE_KEYS.disabledIds, []);
-      renderTable();
-      updateStats();
-      clearEmployeeForm();
-      refreshDtrStatus();
+      if (!window.dtrApi || !window.dtrApi.resetAll) {
+        employees.length = 0;
+        writeJson(STORAGE_KEYS.disabledIds, []);
+        renderTable();
+        updateStats();
+        clearEmployeeForm();
+        refreshDtrStatus();
+        return Promise.resolve();
+      }
+
+      return window.dtrApi.resetAll().then(function (data) {
+        if (data && data.stats) setStats(data.stats);
+        applyEmployees(data && data.employees ? data.employees : []);
+        clearEmployeeForm();
+        refreshDtrStatus();
+      });
     }
 
     /* Verify the entered admin password against the stored hash.
@@ -1929,15 +1934,31 @@
       verifyAdminPassword(function () {
         hideModal();
         doBackup();
-        doReset();
+
+        setTimeout(function () {
+          doReset().catch(function (err) {
+            window.alert(err && err.message ? err.message : 'Could not reset records.');
+          });
+        }, 800);
       });
     });
 
     var btnResetAll = document.getElementById('btnResetAll');
     if (btnResetAll) btnResetAll.addEventListener('click', function () {
       verifyAdminPassword(function () {
+        if (!window.confirm('Reset all employee IDs and attendance records? This cannot be undone unless you already made a backup.')) {
+          return;
+        }
+
         hideModal();
-        doReset();
+
+        doReset()
+          .then(function () {
+            window.alert('All employee IDs and attendance records were cleared.');
+          })
+          .catch(function (err) {
+            window.alert(err && err.message ? err.message : 'Could not reset records.');
+          });
       });
     });
 

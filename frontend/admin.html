@@ -497,6 +497,7 @@
                     <p class="mb-3">Choose an action for <strong>all records</strong>:</p>
                     <ul class="mb-3">
                         <li><strong>Backup IDs &amp; DTR</strong> — download employee roster and attendance as a CSV file.</li>
+                        <li><strong>Reset DTR</strong> — clear all attendance records only, keeping the employee roster.</li>
                         <li><strong>Backup &amp; Reset (All)</strong> — download employee roster and attendance as a CSV file, then clear all records.</li>
                         <li><strong>Reset (All)</strong> — clear all records without backup.</li>
                     </ul>
@@ -518,6 +519,9 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-primary" id="btnBackupOnly">
                         <i class="fa-solid fa-download me-2"></i>Backup IDs &amp; DTR
+                    </button>
+                    <button type="button" class="btn btn-outline-danger" id="btnResetDtrOnly">
+                        <i class="fa-solid fa-calendar-xmark me-2"></i>Reset DTR
                     </button>
                     <button type="button" class="btn btn-warning" id="btnBackupAndReset">
                         <i class="fa-solid fa-file-export me-2"></i>Backup &amp; Reset (All)

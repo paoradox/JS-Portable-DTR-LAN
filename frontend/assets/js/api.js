@@ -100,6 +100,10 @@
       return request('/api/dtr/monthly?month=' + encodeURIComponent(month || ''));
     },
 
+    resetAll: function () {
+      return json('POST', '/api/reset-all', {});
+    },
+
     getSetting: function (key) {
       return request('/api/settings/' + encodeURIComponent(key));
     },
