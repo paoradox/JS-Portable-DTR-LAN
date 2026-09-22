@@ -259,10 +259,9 @@ function connectionInfo() {
 
 function createControlWindow() {
   controlWindow = new BrowserWindow({
-    width: 520,
-    height: 620,
-    minWidth: 460,
-    minHeight: 520,
+    width: 480,
+    height: 420,
+    resizable: false,
     title: 'DTR Manager Launcher',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -271,6 +270,7 @@ function createControlWindow() {
     }
   });
 
+  controlWindow.setMenuBarVisibility(false);
   controlWindow.loadFile(path.join(__dirname, 'renderer', 'control.html'));
 
   controlWindow.on('closed', function () {

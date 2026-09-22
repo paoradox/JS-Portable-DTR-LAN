@@ -491,31 +491,62 @@
     }
 
     function startDecoding() {
-      if (!video || !scanCanvas) return;
-      if (typeof window.jsQR !== 'function') return;
-      var ctx = scanCanvas.getContext('2d');
-
-      function step() {
-        if (!scanActive) return;
-        if (video.readyState === video.HAVE_ENOUGH_DATA) {
-          var w = video.videoWidth;
-          var h = video.videoHeight;
-          if (w && h) {
-            if (scanCanvas.width !== w)  scanCanvas.width  = w;
-            if (scanCanvas.height !== h) scanCanvas.height = h;
-            ctx.drawImage(video, 0, 0, w, h);
-            var imgData = ctx.getImageData(0, 0, w, h);
-            var code = window.jsQR(imgData.data, w, h, { inversionAttempts: 'dontInvert' });
-            if (code && code.data) {
-              handleQrDetected(code.data);
-              return;
-            }
-          }
-        }
-        scanRAF = window.requestAnimationFrame(step);
-      }
-      scanRAF = window.requestAnimationFrame(step);
+  if (!video || !scanCanvas) return;
+  if (typeof window.jsQR !== 'function') {
+    if (scanHint) {
+      scanHint.hidden = false;
+      scanHint.classList.add('is-retry');
+      scanHint.innerHTML = '<i class="fa-solid fa-triangle-exclamation me-2"></i>' +
+        'QR scanner library failed to load. Please check your internet connection or install jsQR locally.';
     }
+    return;
+  }
+
+  var ctx = scanCanvas.getContext('2d', { willReadFrequently: true });
+
+  function readQrFromCanvas(w, h) {
+    var imgData = ctx.getImageData(0, 0, w, h);
+    return window.jsQR(imgData.data, w, h, { inversionAttempts: 'attemptBoth' });
+  }
+
+  function step() {
+    if (!scanActive) return;
+
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      var w = video.videoWidth;
+      var h = video.videoHeight;
+
+      if (w && h) {
+        if (scanCanvas.width !== w) scanCanvas.width = w;
+        if (scanCanvas.height !== h) scanCanvas.height = h;
+
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+        ctx.drawImage(video, 0, 0, w, h);
+
+        var code = readQrFromCanvas(w, h);
+
+        if (!code) {
+          ctx.setTransform(-1, 0, 0, 1, w, 0);
+          ctx.clearRect(0, 0, w, h);
+          ctx.drawImage(video, 0, 0, w, h);
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+          code = readQrFromCanvas(w, h);
+        }
+
+        if (code && code.data) {
+          handleQrDetected(code.data);
+          return;
+        }
+      }
+    }
+
+    scanRAF = window.requestAnimationFrame(step);
+  }
+
+  scanRAF = window.requestAnimationFrame(step);
+}
 
     function handleQrDetected(rawText) {
       var payload;
@@ -1552,11 +1583,7 @@
 
         applyEmployees(employees);
 
-        if (!existedBefore) {
-          form.reset();
-          form.querySelectorAll('.is-invalid').forEach(function (el) { el.classList.remove('is-invalid'); });
-          setEmployeePhoto('');
-        }
+        clearEmployeeForm();
 
         return;
       }
@@ -1569,11 +1596,7 @@
           if (data && data.stats) setStats(data.stats);
           applyEmployees(data && data.employees ? data.employees : employees);
 
-          if (!existedBefore) {
-            form.reset();
-            form.querySelectorAll('.is-invalid').forEach(function (el) { el.classList.remove('is-invalid'); });
-            setEmployeePhoto('');
-          }
+          clearEmployeeForm();
         })
         .catch(function (err) {
           showAdminError(err && err.message ? err.message : 'Could not save employee.');
@@ -1892,7 +1915,7 @@
       });
     }
 
-    /* =========================================================
+        /* =========================================================
        ATTENDANCE CORRECTIONS
        ========================================================= */
     var correctionEmpSearch = document.getElementById('correctionEmpSearch');
@@ -1902,10 +1925,33 @@
     var correctionTableBody = document.getElementById('correctionTableBody');
     var correctionPunches = [];
 
-    function toDateTimeLocalValue(punchedAt) {
+    function splitPunchDateTime(punchedAt) {
       var value = String(punchedAt || '').trim();
-      if (!value) return '';
-      return value.replace(' ', 'T').slice(0, 16);
+      var parts = value.split(' ');
+      var datePart = parts[0] || '';
+      var timePart = (parts[1] || '').slice(0, 5);
+
+      if (!datePart && value.indexOf('T') > -1) {
+        parts = value.split('T');
+        datePart = parts[0] || '';
+        timePart = (parts[1] || '').slice(0, 5);
+      }
+
+      return {
+        date: datePart,
+        time: timePart
+      };
+    }
+
+      function buildTimeOptions(selected, max) {
+      var html = '';
+
+      for (var i = 0; i <= max; i++) {
+        var value = String(i).padStart(2, '0');
+        html += '<option value="' + value + '"' + (value === selected ? ' selected' : '') + '>' + value + '</option>';
+      }
+
+      return html;
     }
 
     function setCorrectionStatus(message, kind) {
@@ -1918,6 +1964,84 @@
       else correctionStatus.classList.add('text-muted');
     }
 
+    function refreshCorrectionStatus() {
+      if (!correctionEmpSearch) return;
+
+      var q = correctionEmpSearch.value.trim();
+      if (!q) {
+        setCorrectionStatus('Load one employee month at a time.', 'muted');
+        return;
+      }
+
+      var emp = findEmployeeById(q);
+      if (emp) {
+        setCorrectionStatus('Found: ' + fullName(emp) + ' — ' + (emp.position || '—'), 'success');
+      } else {
+        setCorrectionStatus('No employee found with that ID.', 'error');
+      }
+    }
+
+    function setCorrectionRowMessage(punchId, message, kind) {
+      var row = document.querySelector('[data-punch-row="' + punchId + '"]');
+      if (!row) return;
+
+      var msgEl = row.nextElementSibling;
+      if (!msgEl || msgEl.getAttribute('data-punch-message') !== String(punchId)) return;
+
+      var box = msgEl.querySelector('.correction-row-message');
+      if (!box) return;
+
+      box.textContent = message || '';
+      box.className = 'correction-row-message' + (kind ? ' is-' + kind : '');
+      msgEl.hidden = !message;
+    }
+
+    function clearCorrectionRowMessages() {
+      var rows = document.querySelectorAll('[data-punch-message]');
+      rows.forEach(function (row) {
+        row.hidden = true;
+        var box = row.querySelector('.correction-row-message');
+        if (box) {
+          box.textContent = '';
+          box.className = 'correction-row-message';
+        }
+      });
+    }
+
+    function restoreCorrectionRow(punchId) {
+      var punch = correctionPunches.find(function (item) {
+        return String(item.id) === String(punchId);
+      });
+
+      if (!punch) return;
+
+      var parts = splitPunchDateTime(punch.punchedAt);
+      var timePieces = String(parts.time || '00:00').split(':');
+
+      var dateEl = document.querySelector('[data-correction-date="' + punchId + '"]');
+      var hourEl = document.querySelector('[data-correction-hour="' + punchId + '"]');
+      var minuteEl = document.querySelector('[data-correction-minute="' + punchId + '"]');
+      var actionEl = document.querySelector('[data-correction-action="' + punchId + '"]');
+
+      if (dateEl) dateEl.value = parts.date;
+      if (hourEl) hourEl.value = timePieces[0] || '00';
+      if (minuteEl) minuteEl.value = timePieces[1] || '00';
+      if (actionEl) actionEl.value = punch.action || 'Clock In';
+    }
+
+    function clearCorrectionRecords(message) {
+      correctionPunches = [];
+
+      if (correctionTableBody) {
+        correctionTableBody.innerHTML =
+          '<tr><td colspan="5" class="text-muted text-center py-4">' +
+          escapeHtml(message || 'No records loaded.') +
+          '</td></tr>';
+      }
+
+      setCorrectionStatus(message || 'No records loaded.', 'muted');
+    }
+
     function renderCorrectionRows() {
       if (!correctionTableBody) return;
 
@@ -1928,21 +2052,37 @@
       }
 
       correctionTableBody.innerHTML = correctionPunches.map(function (punch) {
-        var dateTimeValue = toDateTimeLocalValue(punch.punchedAt);
+        var parts = splitPunchDateTime(punch.punchedAt);
+        var timePieces = String(parts.time || '00:00').split(':');
+        var selectedHour = timePieces[0] || '00';
+        var selectedMinute = timePieces[1] || '00';
 
         return (
           '<tr data-punch-row="' + escapeHtml(punch.id) + '">' +
             '<td class="text-nowrap">' + escapeHtml(punch.id) + '</td>' +
-            '<td style="min-width: 170px;">' +
-              '<input type="datetime-local" class="form-control form-control-sm" ' +
-              'data-correction-time="' + escapeHtml(punch.id) + '" value="' + escapeHtml(dateTimeValue) + '" />' +
+            '<td style="min-width: 145px;">' +
+              '<input type="date" class="form-control form-control-sm" ' +
+              'data-correction-date="' + escapeHtml(punch.id) + '" value="' + escapeHtml(parts.date) + '" />' +
             '</td>' +
-            '<td class="text-nowrap">' + escapeHtml(punch.punchTime || '') + '</td>' +
+            '<td style="min-width: 150px;">' +
+              '<div class="correction-time-picker">' +
+                '<select class="form-select form-select-sm correction-time-select" data-correction-hour="' + escapeHtml(punch.id) + '">' +
+                  buildTimeOptions(selectedHour, 23) +
+                '</select>' +
+                '<span class="correction-time-separator">:</span>' +
+                '<select class="form-select form-select-sm correction-time-select" data-correction-minute="' + escapeHtml(punch.id) + '">' +
+                  buildTimeOptions(selectedMinute, 59) +
+                '</select>' +
+              '</div>' +
+            '</td>' +
             '<td style="min-width: 130px;">' +
-              '<select class="form-select form-select-sm" data-correction-action="' + escapeHtml(punch.id) + '">' +
+              '<div class="correction-action-wrap">' +
+              '<i class="fa-solid fa-right-left correction-action-icon" aria-hidden="true"></i>' +
+              '<select class="form-select form-select-sm correction-action-select" data-correction-action="' + escapeHtml(punch.id) + '">' +
                 '<option value="Clock In"' + (punch.action === 'Clock In' ? ' selected' : '') + '>Clock In</option>' +
                 '<option value="Clock Out"' + (punch.action === 'Clock Out' ? ' selected' : '') + '>Clock Out</option>' +
               '</select>' +
+            '</div>' +
             '</td>' +
             '<td class="text-end text-nowrap">' +
               '<button type="button" class="btn btn-sm btn-primary me-1" data-save-punch="' + escapeHtml(punch.id) + '">' +
@@ -1951,6 +2091,11 @@
               '<button type="button" class="btn btn-sm btn-outline-danger" data-delete-punch="' + escapeHtml(punch.id) + '">' +
                 '<i class="fa-solid fa-trash me-1"></i>Delete' +
               '</button>' +
+            '</td>' +
+          '</tr>' +
+          '<tr data-punch-message="' + escapeHtml(punch.id) + '" hidden>' +
+            '<td colspan="5">' +
+              '<div class="correction-row-message" role="alert" aria-live="polite"></div>' +
             '</td>' +
           '</tr>'
         );
@@ -1962,7 +2107,7 @@
       var monthVal = correctionMonth ? correctionMonth.value : '';
 
       if (!emp) {
-        setCorrectionStatus('Please enter a valid employee ID.', 'error');
+        setCorrectionStatus('No employee found with that ID.', 'error');
         if (correctionEmpSearch) correctionEmpSearch.focus();
         return;
       }
@@ -1975,11 +2120,11 @@
 
       setCorrectionStatus('Loading records...', 'muted');
 
-      window.dtrApi.getMonthlyPunches(monthVal, emp.id)
+      return window.dtrApi.getMonthlyPunches(monthVal, emp.id)
         .then(function (data) {
           correctionPunches = data && data.punches ? data.punches : [];
           renderCorrectionRows();
-          setCorrectionStatus('Loaded ' + correctionPunches.length + ' record(s).', 'success');
+          setCorrectionStatus('Loaded ' + correctionPunches.length + ' record(s) for ' + fullName(emp) + '.', 'success');
         })
         .catch(function (err) {
           correctionPunches = [];
@@ -1989,66 +2134,214 @@
     }
 
     function saveCorrectedPunch(punchId) {
-      var timeEl = document.querySelector('[data-correction-time="' + punchId + '"]');
+      var dateEl = document.querySelector('[data-correction-date="' + punchId + '"]');
+      var hourEl = document.querySelector('[data-correction-hour="' + punchId + '"]');
+      var minuteEl = document.querySelector('[data-correction-minute="' + punchId + '"]');
       var actionEl = document.querySelector('[data-correction-action="' + punchId + '"]');
 
-      var punchedAt = timeEl ? timeEl.value : '';
+      var punchDate = dateEl ? dateEl.value : '';
+      var punchHour = hourEl ? hourEl.value : '';
+      var punchMinute = minuteEl ? minuteEl.value : '';
+      var punchTime = punchHour + ':' + punchMinute;
       var action = actionEl ? actionEl.value : '';
 
-      if (!punchedAt) {
-        window.alert('Please enter the corrected date and time.');
-        if (timeEl) timeEl.focus();
+      if (!punchDate) {
+        setCorrectionRowMessage(punchId, 'Please enter the corrected date.', 'error');
+        if (dateEl) dateEl.focus();
         return;
       }
 
-      verifyAdminPassword(function () {
-        showProcessing(
-          'Saving correction...',
-          'Updating the selected attendance record.'
-        );
+      if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(punchTime)) {
+        setCorrectionRowMessage(punchId, 'Please select a valid 24-hour time.', 'error');
+        if (hourEl) hourEl.focus();
+        return;
+      }
 
-        window.dtrApi.updatePunch(punchId, {
-          action: action,
-          punchedAt: punchedAt
-        }, pw).then(function () {
-          hideProcessing();
-          loadCorrectionRecords();
-          refreshDtrStatus();
-          updateStats();
-          window.alert('Attendance record updated.');
-        }).catch(function (err) {
-          hideProcessing();
-          window.alert(err && err.message ? err.message : 'Could not update attendance record.');
-        });
+      clearCorrectionRowMessages();
+
+      showProcessing(
+        'Saving correction...',
+        'Updating the selected attendance record.'
+      );
+
+      window.dtrApi.updatePunch(punchId, {
+        action: action,
+        punchedAt: punchDate + 'T' + punchTime
+      }).then(function () {
+        hideProcessing();
+        refreshDtrStatus();
+        updateStats();
+
+        return loadCorrectionRecords();
+      }).then(function () {
+        setCorrectionStatus('Attendance record updated.', 'success');
+      }).catch(function (err) {
+        hideProcessing();
+        restoreCorrectionRow(punchId);
+        setCorrectionRowMessage(
+          punchId,
+          err && err.message ? err.message : 'Could not update attendance record.',
+          'error'
+        );
       });
     }
 
     function deleteCorrectedPunch(punchId) {
       if (!window.confirm('Delete this attendance record?')) return;
 
-      verifyAdminPassword(function (pw) {
+      showProcessing(
+        'Deleting punch...',
+        'Removing the selected attendance record.'
+      );
+
+      window.dtrApi.deletePunch(punchId)
+        .then(function () {
+          hideProcessing();
+          loadCorrectionRecords();
+          refreshDtrStatus();
+          updateStats();
+          setCorrectionStatus('Attendance record deleted.', 'success');
+        })
+        .catch(function (err) {
+          hideProcessing();
+          window.alert(err && err.message ? err.message : 'Could not delete attendance record.');
+        });
+    }
+
+    var btnOpenAddAttendance = document.getElementById('btnOpenAddAttendance');
+    var addAttendanceModalEl = document.getElementById('addAttendanceModal');
+    var addAttendanceForm = document.getElementById('addAttendanceForm');
+    var addAttendanceEmployee = document.getElementById('addAttendanceEmployee');
+    var addAttendanceDate = document.getElementById('addAttendanceDate');
+    var addAttendanceHour = document.getElementById('addAttendanceHour');
+    var addAttendanceMinute = document.getElementById('addAttendanceMinute');
+    var addAttendanceAction = document.getElementById('addAttendanceAction');
+    var addAttendanceNotice = document.getElementById('addAttendanceNotice');
+
+    var addAttendanceModal = (addAttendanceModalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal)
+      ? bootstrap.Modal.getOrCreateInstance(addAttendanceModalEl)
+      : null;
+
+    function setAddAttendanceNotice(message, kind) {
+      if (!addAttendanceNotice) return;
+
+      addAttendanceNotice.hidden = !message;
+      addAttendanceNotice.textContent = message || '';
+      addAttendanceNotice.className = 'correction-row-message' + (kind ? ' is-' + kind : '');
+    }
+
+    function fillSelectOptions(selectEl, max, selected) {
+      if (!selectEl) return;
+
+      var html = '';
+      for (var i = 0; i <= max; i++) {
+        var value = String(i).padStart(2, '0');
+        html += '<option value="' + value + '"' + (value === selected ? ' selected' : '') + '>' + value + '</option>';
+      }
+
+      selectEl.innerHTML = html;
+    }
+
+    function openAddAttendanceModal() {
+      var emp = findEmployeeById(correctionEmpSearch ? correctionEmpSearch.value : '');
+
+      if (!emp) {
+        setCorrectionStatus('Please enter a valid employee ID before adding attendance.', 'error');
+        if (correctionEmpSearch) correctionEmpSearch.focus();
+        return;
+      }
+
+      var monthVal = correctionMonth ? correctionMonth.value : '';
+      var today = new Date();
+      var fallbackDate = today.getFullYear() + '-' + pad(today.getMonth() + 1) + '-' + pad(today.getDate());
+      var latestPunch = correctionPunches.length ? correctionPunches[correctionPunches.length - 1] : null;
+      var latestParts = latestPunch ? splitPunchDateTime(latestPunch.punchedAt) : null;
+      var defaultDate = latestParts && latestParts.date
+        ? latestParts.date
+        : (monthVal ? monthVal + '-01' : fallbackDate);
+
+      if (addAttendanceEmployee) addAttendanceEmployee.value = emp.id;
+      if (addAttendanceDate) addAttendanceDate.value = defaultDate;
+
+      fillSelectOptions(addAttendanceHour, 23, '08');
+      fillSelectOptions(addAttendanceMinute, 59, '00');
+
+      if (addAttendanceAction) addAttendanceAction.value = 'Clock In';
+      setAddAttendanceNotice('', '');
+
+      if (addAttendanceModal) addAttendanceModal.show();
+    }
+
+    if (btnOpenAddAttendance) {
+      btnOpenAddAttendance.addEventListener('click', openAddAttendanceModal);
+    }
+
+    if (addAttendanceForm) {
+      addAttendanceForm.addEventListener('submit', function (event) {
+        event.preventDefault();
+
+        var employeeId = addAttendanceEmployee ? addAttendanceEmployee.value.trim().toUpperCase() : '';
+        var punchDate = addAttendanceDate ? addAttendanceDate.value : '';
+        var punchHour = addAttendanceHour ? addAttendanceHour.value : '';
+        var punchMinute = addAttendanceMinute ? addAttendanceMinute.value : '';
+        var action = addAttendanceAction ? addAttendanceAction.value : '';
+        var punchTime = punchHour + ':' + punchMinute;
+
+        if (!employeeId) {
+          setAddAttendanceNotice('Employee ID is required.', 'error');
+          return;
+        }
+
+        if (!punchDate) {
+          setAddAttendanceNotice('Please select a date.', 'error');
+          if (addAttendanceDate) addAttendanceDate.focus();
+          return;
+        }
+
+        if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(punchTime)) {
+          setAddAttendanceNotice('Please select a valid 24-hour time.', 'error');
+          if (addAttendanceHour) addAttendanceHour.focus();
+          return;
+        }
+
+        setAddAttendanceNotice('', '');
+
         showProcessing(
-          'Deleting punch...',
-          'Removing the selected attendance record.'
+          'Adding attendance...',
+          'Saving the new attendance record.'
         );
 
-        window.dtrApi.deletePunch(punchId, pw)
-          .then(function () {
-            hideProcessing();
-            loadCorrectionRecords();
-            refreshDtrStatus();
-            updateStats();
-            window.alert('Attendance record deleted.');
-          })
-          .catch(function (err) {
-            hideProcessing();
-            window.alert(err && err.message ? err.message : 'Could not delete attendance record.');
-          });
+        window.dtrApi.addPunchCorrection({
+          employeeId: employeeId,
+          action: action,
+          punchedAt: punchDate + 'T' + punchTime
+        }).then(function () {
+          hideProcessing();
+          if (addAttendanceModal) addAttendanceModal.hide();
+
+          if (correctionMonth && punchDate.slice(0, 7) !== correctionMonth.value) {
+            correctionMonth.value = punchDate.slice(0, 7);
+          }
+
+          refreshDtrStatus();
+          updateStats();
+
+          return loadCorrectionRecords();
+        }).then(function () {
+          setCorrectionStatus('Attendance record added.', 'success');
+        }).catch(function (err) {
+          hideProcessing();
+          setAddAttendanceNotice(
+            err && err.message ? err.message : 'Could not add attendance record.',
+            'error'
+          );
+        });
       });
     }
 
     if (correctionEmpSearch) {
       attachUppercase(correctionEmpSearch);
+      correctionEmpSearch.addEventListener('input', refreshCorrectionStatus);
     }
 
     if (btnLoadCorrections) {
@@ -2125,9 +2418,21 @@
       window.location.href = '/api/backup.zip';
     }
 
-    function applyResetResult(data) {
+    function applyResetResult(data, options) {
+      var resetOptions = options || {};
+
       if (data && data.stats) setStats(data.stats);
-      applyEmployees(data && data.employees ? data.employees : employees);
+
+      if (resetOptions.clearEmployees) {
+        applyEmployees([]);
+      } else {
+        applyEmployees(data && data.employees ? data.employees : employees);
+      }
+
+      if (resetOptions.clearCorrections) {
+        clearCorrectionRecords('No attendance records loaded.');
+      }
+
       clearEmployeeForm();
       refreshDtrStatus();
     }
@@ -2141,7 +2446,9 @@
       }
 
       return window.dtrApi.resetDtr(adminPassword).then(function (data) {
-        applyResetResult(data);
+          applyResetResult(data, {
+          clearCorrections: true
+        });
       });
     }
 
@@ -2153,17 +2460,48 @@
         updateStats();
         clearEmployeeForm();
         refreshDtrStatus();
+        clearCorrectionRecords('No attendance records loaded.');
         return Promise.resolve();
       }
 
       return window.dtrApi.resetAll(adminPassword).then(function (data) {
-        applyResetResult(data);
+        applyResetResult(data, {
+          clearEmployees: true,
+          clearCorrections: true
+        });
       });
     }
 
     /* Verify the entered admin password against the stored hash.
        On success, clears the field and runs the callback. */
-    function verifyAdminPassword(onVerified) {
+       
+    function requestAdminPasswordPrompt(onVerified) {
+      var pw = window.prompt('Enter administrator password:');
+
+      if (!pw) {
+        window.alert('Administrator password is required.');
+        return;
+      }
+
+      var account = getAdminAccount();
+      if (!account) {
+        window.alert('No admin account found.');
+        return;
+      }
+
+      hashPassword(pw, account.salt).then(function (hash) {
+        if (hash !== account.passwordHash) {
+          window.alert('Incorrect password.');
+          return;
+        }
+
+        onVerified(pw);
+      }).catch(function (err) {
+        window.alert(err && err.message ? err.message : 'Password verification failed.');
+      });
+    }
+
+      function verifyAdminPassword(onVerified) {
       showBackupNotice('', '');
 
       var pw = (backupPwEl && backupPwEl.value) || '';
@@ -2188,7 +2526,7 @@
           }
           return;
         }
-        // Verified — clear the field and proceed.
+
         if (backupPwEl) backupPwEl.value = '';
         showBackupNotice('', '');
         onVerified(pw);
@@ -2217,7 +2555,7 @@
 
     var btnBackupOnly = document.getElementById('btnBackupOnly');
     if (btnBackupOnly) btnBackupOnly.addEventListener('click', function () {
-      verifyAdminPassword(function () {
+      verifyAdminPassword(function (pw) {
         hideModal();
         doBackup();
       });
@@ -2225,7 +2563,7 @@
 
     var btnResetDtrOnly = document.getElementById('btnResetDtrOnly');
     if (btnResetDtrOnly) btnResetDtrOnly.addEventListener('click', function () {
-      verifyAdminPassword(function () {
+      verifyAdminPassword(function (pw) {
         if (!window.confirm('Reset DTR attendance records only? Employee IDs will be kept.')) {
           return;
         }
@@ -2251,7 +2589,7 @@
 
     var btnBackupAndReset = document.getElementById('btnBackupAndReset');
     if (btnBackupAndReset) btnBackupAndReset.addEventListener('click', function () {
-      verifyAdminPassword(function () {
+        verifyAdminPassword(function (pw) {
         hideModal();
         doBackup();
 
@@ -2261,7 +2599,7 @@
             'Clearing employee IDs and attendance records.'
           );
 
-          doResetAll()
+          doResetAll(pw)
             .then(function () {
               hideProcessing();
               window.alert('Backup started. All employee IDs and attendance records were cleared.');
@@ -2276,7 +2614,7 @@
 
     var btnResetAll = document.getElementById('btnResetAll');
     if (btnResetAll) btnResetAll.addEventListener('click', function () {
-      verifyAdminPassword(function () {
+        verifyAdminPassword(function (pw) {
         if (!window.confirm('Reset all employee IDs and attendance records? This cannot be undone unless you already made a backup.')) {
           return;
         }
@@ -2288,7 +2626,7 @@
           'Clearing employee IDs and attendance records.'
         );
 
-        doResetAll()
+          doResetAll(pw)
           .then(function () {
             hideProcessing();
             window.alert('All employee IDs and attendance records were cleared.');

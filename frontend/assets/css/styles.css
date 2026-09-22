@@ -630,7 +630,7 @@ hr { border-top-color: var(--md-divider); opacity: 1; }
 
 /* =========================================================
    ID CARD — CR80 (85.6 mm × 54 mm)
-   Photo and QR are BOTH 24 mm × 24 mm
+   Photo is 24 mm × 24 mm, QR is 28 mm × 28 mm
    ========================================================= */
 .id-card {
   width:  85.6mm;
@@ -683,7 +683,7 @@ hr { border-top-color: var(--md-divider); opacity: 1; }
   flex: 1 1 auto;
   padding: 2mm;
   display: flex;
-  gap: 1.5mm;
+  gap: 1mm;
   align-items: center;
   min-height: 0;
   box-sizing: border-box;
@@ -820,10 +820,10 @@ hr { border-top-color: var(--md-divider); opacity: 1; }
 }
 
 .id-card__qr {
-  flex: 0 0 24mm;
-  width: 24mm;
-  height: 24mm;
-  padding: 2.5mm;
+  flex: 0 0 28mm;
+  width: 28mm;
+  height: 28mm;
+  padding: 1mm;
   background: #fff;
   border: 0.2mm solid var(--md-outline-var);
   border-radius: 1mm;
@@ -833,12 +833,14 @@ hr { border-top-color: var(--md-divider); opacity: 1; }
   overflow: hidden;
   box-sizing: border-box;
 }
+
 .id-card__qr canvas,
 .id-card__qr img {
   width: 100% !important;
   height: 100% !important;
   display: block;
 }
+
 .id-card__qr .placeholder {
   color: var(--md-on-surface-muted);
   font-size: 4.5pt;
@@ -1117,4 +1119,63 @@ hr { border-top-color: var(--md-divider); opacity: 1; }
   .action-btn.lg img { width: 48px; height: 48px; }
   .clock-display .clock-time { font-size: 2rem; }
   .clock-display .clock-date { font-size: 0.875rem; }
+}
+
+/* ---------- Attendance Corrections ---------- */
+.correction-time-picker {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: .25rem;
+}
+
+.correction-time-select {
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.correction-time-separator {
+  font-weight: 600;
+  color: var(--md-on-surface-muted);
+}
+
+.correction-action-wrap {
+  position: relative;
+}
+
+.correction-action-icon {
+  position: absolute;
+  left: .65rem;
+  top: 50%;
+  z-index: 2;
+  transform: translateY(-50%);
+  color: var(--md-primary);
+  font-size: .8rem;
+  pointer-events: none;
+}
+
+.correction-action-select {
+  padding-left: 2rem;
+  cursor: pointer;
+  background-color: #fff;
+}
+
+.correction-row-message {
+  margin-top: .25rem;
+  padding: .5rem .75rem;
+  border-radius: var(--md-radius-sm);
+  font-size: .875rem;
+  background: var(--md-surface-2);
+  color: var(--md-on-surface-muted);
+}
+
+.correction-row-message.is-error {
+  background: rgba(179, 38, 30, .1);
+  color: var(--md-error);
+}
+
+.correction-row-message.is-success {
+  background: rgba(20, 108, 67, .1);
+  color: #146c43;
 }

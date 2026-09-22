@@ -250,10 +250,23 @@ function saveAdminAccount(account) {
     throw err;
   }
 
+  db.prepare(`
+    INSERT INTO admin_accounts (id, username, salt, password_hash, updated_at)
+    VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(id) DO UPDATE SET
+      username = excluded.username,
+      salt = excluded.salt,
+      password_hash = excluded.password_hash,
+      updated_at = CURRENT_TIMESTAMP
+  `).run(username, salt, passwordHash);
+
+  return getAdminAccount();
+}
+
 function hashAdminPassword(password, salt) {
   return crypto
     .createHash('sha256')
-    .update(String(password || '') + String(salt || ''))
+    .update(String(salt || '') + '::' + String(password || ''))
     .digest('hex');
 }
 
@@ -279,19 +292,6 @@ function requireAdminPassword(body) {
     err.statusCode = 403;
     throw err;
   }
-}
-
-  db.prepare(`
-    INSERT INTO admin_accounts (id, username, salt, password_hash, updated_at)
-    VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(id) DO UPDATE SET
-      username = excluded.username,
-      salt = excluded.salt,
-      password_hash = excluded.password_hash,
-      updated_at = CURRENT_TIMESTAMP
-  `).run(username, salt, passwordHash);
-
-  return getAdminAccount();
 }
 
 function getTodayPunchesForEmployee(employeeId) {
@@ -467,6 +467,107 @@ function getPunchById(id) {
   `).get(Number(id));
 }
 
+function getPunchesForEmployeeDate(employeeId, punchDate) {
+  return db.prepare(`
+    SELECT
+      id,
+      employee_id AS employeeId,
+      action,
+      punched_at AS punchedAt
+    FROM punches
+    WHERE employee_id = ?
+      AND substr(punched_at, 1, 10) = ?
+    ORDER BY punched_at ASC, id ASC
+  `).all(cleanText(employeeId).toUpperCase(), cleanText(punchDate));
+}
+
+function validateCorrectedPunchDay(employeeId, punchDate) {
+  const punches = getPunchesForEmployeeDate(employeeId, punchDate);
+
+  function reject(message) {
+    const err = new Error(message);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (punches.length > 4) {
+    reject('Daily punch limit reached.');
+  }
+
+  const expected = ['Clock In', 'Clock Out', 'Clock In', 'Clock Out'];
+
+  for (let i = 0; i < punches.length; i++) {
+    if (punches[i].action !== expected[i]) {
+      if (i === 0) {
+        reject('First punch of the day must be Clock In.');
+      }
+
+      if (expected[i] === 'Clock Out') {
+        reject('Clock Out must come after Clock In.');
+      }
+
+      reject('Clock In must come after Clock Out.');
+    }
+
+    if (i > 0 && punches[i].punchedAt <= punches[i - 1].punchedAt) {
+      reject('Punch times must be in chronological order.');
+    }
+  }
+}
+
+function addCorrectedPunch(employeeId, action, punchedAtLocal) {
+  const cleanEmployeeId = cleanText(employeeId).toUpperCase();
+  const cleanAction = cleanText(action);
+  const cleanDateTime = cleanText(punchedAtLocal);
+
+  if (!cleanEmployeeId) {
+    const err = new Error('Employee ID is required.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (cleanAction !== 'Clock In' && cleanAction !== 'Clock Out') {
+    const err = new Error('Punch action must be Clock In or Clock Out.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!isValidPunchDateTime(cleanDateTime)) {
+    const err = new Error('Punch date and time must be valid.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const employee = getEmployeeById(cleanEmployeeId);
+  if (!employee) {
+    const err = new Error('Employee not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const sqliteDateTime = cleanDateTime.replace('T', ' ') + ':00';
+
+  const result = db.prepare(`
+    INSERT INTO punches (employee_id, action, punched_at)
+    VALUES (?, ?, ?)
+  `).run(cleanEmployeeId, cleanAction, sqliteDateTime);
+
+  const punchId = result.lastInsertRowid;
+
+  try {
+    const added = getPunchById(punchId);
+    validateCorrectedPunchDay(added.employeeId, added.punchDate);
+    return added;
+  } catch (err) {
+    db.prepare(`
+      DELETE FROM punches
+      WHERE id = ?
+    `).run(punchId);
+
+    throw err;
+  }
+}
+
 function updatePunch(id, action, punchedAtLocal) {
   const punchId = Number(id);
   const cleanAction = cleanText(action);
@@ -499,13 +600,31 @@ function updatePunch(id, action, punchedAtLocal) {
 
   const sqliteDateTime = cleanDateTime.replace('T', ' ') + ':00';
 
-  db.prepare(`
-    UPDATE punches
-    SET action = ?, punched_at = ?
-    WHERE id = ?
-  `).run(cleanAction, sqliteDateTime, punchId);
+  try {
+    db.prepare(`
+      UPDATE punches
+      SET action = ?, punched_at = ?
+      WHERE id = ?
+    `).run(cleanAction, sqliteDateTime, punchId);
 
-  return getPunchById(punchId);
+    const updated = getPunchById(punchId);
+
+    validateCorrectedPunchDay(updated.employeeId, updated.punchDate);
+
+    if (existing.punchDate !== updated.punchDate) {
+      validateCorrectedPunchDay(existing.employeeId, existing.punchDate);
+    }
+
+    return updated;
+  } catch (err) {
+    db.prepare(`
+      UPDATE punches
+      SET action = ?, punched_at = ?
+      WHERE id = ?
+    `).run(existing.action, existing.punchedAt, punchId);
+
+    throw err;
+  }
 }
 
 function deletePunch(id) {
@@ -529,7 +648,17 @@ function deletePunch(id) {
     WHERE id = ?
   `).run(punchId);
 
-  return existing;
+  try {
+    validateCorrectedPunchDay(existing.employeeId, existing.punchDate);
+    return existing;
+  } catch (err) {
+    db.prepare(`
+      INSERT INTO punches (id, employee_id, action, punched_at)
+      VALUES (?, ?, ?, ?)
+    `).run(existing.id, existing.employeeId, existing.action, existing.punchedAt);
+
+    throw err;
+  }
 }
 
 function groupMonthlyPunchesByEmployee(month) {
@@ -1305,9 +1434,20 @@ function createApp(ioRef) {
     });
   });
 
-    app.patch('/api/punches/:id', function (req, res) {
-    requireAdminPassword(req.body);
+    app.post('/api/punches/correction', function (req, res) {
+    const punch = addCorrectedPunch(req.body.employeeId, req.body.action, req.body.punchedAt);
 
+    broadcastDataChanged('punches-corrected', {
+      employeeId: punch.employeeId
+    });
+
+    res.status(201).json({
+      punch: punch,
+      stats: getStats()
+    });
+  });
+
+  app.patch('/api/punches/:id', function (req, res) {
     const punch = updatePunch(req.params.id, req.body.action, req.body.punchedAt);
 
     broadcastDataChanged('punches-corrected', {
@@ -1321,8 +1461,6 @@ function createApp(ioRef) {
   });
 
   app.delete('/api/punches/:id', function (req, res) {
-    requireAdminPassword(req.body);
-
     const punch = deletePunch(req.params.id);
 
     broadcastDataChanged('punches-corrected', {
@@ -1424,6 +1562,10 @@ function createApp(ioRef) {
       employees: getEmployees(),
       stats: getStats()
     });
+  });
+
+  app.get('/vendor/jsQR.js', function (req, res) {
+    res.sendFile(path.join(__dirname, '..', 'node_modules', 'jsqr', 'dist', 'jsQR.js'));
   });
 
   app.use(express.static(FRONTEND_DIR));

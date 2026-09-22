@@ -96,18 +96,23 @@
       return request('/api/punches/monthly' + query);
     },
 
-    updatePunch: function (id, punch, adminPassword) {
-      return json('PATCH', '/api/punches/' + encodeURIComponent(id), {
+    addPunchCorrection: function (punch) {
+      return json('POST', '/api/punches/correction', {
+        employeeId: punch.employeeId,
         action: punch.action,
-        punchedAt: punch.punchedAt,
-        adminPassword: adminPassword
+        punchedAt: punch.punchedAt
       });
     },
 
-    deletePunch: function (id, adminPassword) {
-      return json('DELETE', '/api/punches/' + encodeURIComponent(id), {
-        adminPassword: adminPassword
+    updatePunch: function (id, punch) {
+      return json('PATCH', '/api/punches/' + encodeURIComponent(id), {
+        action: punch.action,
+        punchedAt: punch.punchedAt
       });
+    },
+
+    deletePunch: function (id) {
+      return json('DELETE', '/api/punches/' + encodeURIComponent(id), {});
     },
 
     getMonthlyDtr: function (month) {

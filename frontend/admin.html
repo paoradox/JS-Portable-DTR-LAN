@@ -201,12 +201,12 @@
                                                    placeholder="DESIGNATION" maxlength="48" autocomplete="off" />
                                         </div>
                                         <div class="col-12 col-md-5">
-                                            <label for="empFirst" class="form-label">First name * <span class="text-muted">(max 17)</span></label>
+                                            <label for="empFirst" class="form-label">First name * <span class="text-muted">(max 13)</span></label>
                                             <input type="text" class="form-control text-uppercase" id="empFirst" name="empFirst"
-                                                   placeholder="FIRST NAME/S" required maxlength="17"
+                                                   placeholder="FIRST NAME/S" required maxlength="13"
                                                    autocomplete="given-name" autocapitalize="characters"
                                                    data-name-field />
-                                            <div class="invalid-feedback">First name is required (max 17 characters).</div>
+                                            <div class="invalid-feedback">First name is required (max 13 characters).</div>
                                         </div>
                                         <div class="col-4 col-md-2">
                                             <label for="empMi" class="form-label">M.I. <span class="text-muted">(max 2)</span></label>
@@ -243,9 +243,9 @@
                                         <div class="section-title mb-2">Emergency contact</div>
                                         <div class="row g-3">
                                             <div class="col-12 col-md-7">
-                                                <label for="empEcName" class="form-label">Full name <span class="text-muted">(max 28)</span></label>
+                                                <label for="empEcName" class="form-label">Full name <span class="text-muted">(max 23)</span></label>
                                                 <input type="text" class="form-control text-uppercase" id="empEcName" name="empEcName"
-                                                       placeholder="FULL NAME" maxlength="28"
+                                                       placeholder="FULL NAME" maxlength="23"
                                                        autocomplete="off" data-name-field />
                                             </div>
                                             <div class="col-12 col-md-5">
@@ -458,9 +458,14 @@
                             <input type="month" class="form-control" id="correctionMonth" />
                         </div>
                         <div class="col-12 col-md-3">
-                            <button type="button" class="btn btn-outline-primary w-100" id="btnLoadCorrections">
-                                <i class="fa-solid fa-magnifying-glass me-2"></i>Load Records
-                            </button>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-outline-primary flex-fill" id="btnLoadCorrections">
+                                    <i class="fa-solid fa-magnifying-glass me-2"></i>Load
+                                </button>
+                                <button type="button" class="btn btn-primary flex-fill" id="btnOpenAddAttendance">
+                                    <i class="fa-solid fa-plus me-2"></i>Add
+                                </button>
+                            </div>
                         </div>
                         <div class="col-12 col-md-3">
                             <div class="form-text" id="correctionStatus">Load one employee month at a time.</div>
@@ -529,6 +534,64 @@
                         <i class="fa-solid fa-floppy-disk me-2"></i>Save
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Attendance modal -->
+<div class="modal fade" id="addAttendanceModal" tabindex="-1"
+     aria-labelledby="addAttendanceTitle" aria-hidden="true"
+     data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form id="addAttendanceForm" novalidate>
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="addAttendanceTitle">
+                            <i class="fa-solid fa-plus me-2 text-primary"></i>Add Attendance
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="addAttendanceEmployee" class="form-label">Employee ID</label>
+                            <input type="text" class="form-control text-uppercase" id="addAttendanceEmployee" readonly />
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="addAttendanceDate" class="form-label">Date</label>
+                            <input type="date" class="form-control" id="addAttendanceDate" required />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Time</label>
+                            <div class="correction-time-picker">
+                                <select class="form-select" id="addAttendanceHour"></select>
+                                <span class="correction-time-separator">:</span>
+                                <select class="form-select" id="addAttendanceMinute"></select>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="addAttendanceAction" class="form-label">Action</label>
+                            <div class="correction-action-wrap">
+                                <i class="fa-solid fa-right-left correction-action-icon" aria-hidden="true"></i>
+                                <select class="form-select correction-action-select" id="addAttendanceAction">
+                                    <option value="Clock In">Clock In</option>
+                                    <option value="Clock Out">Clock Out</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="correction-row-message" id="addAttendanceNotice" role="alert" aria-live="polite" hidden></div>
+                    </div>
+
+                    <div class="modal-footer">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fa-solid fa-floppy-disk me-2"></i>Add Attendance
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
