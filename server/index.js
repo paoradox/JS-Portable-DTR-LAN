@@ -7,6 +7,7 @@ const { Server } = require('socket.io');
 const { db, DB_PATH } = require('./db');
 const ExcelJS = require('exceljs');
 const { ZipArchive } = require('archiver');
+const crypto = require('crypto');
 
 const DEFAULT_PORT = 3000;
 const FRONTEND_DIR = path.join(__dirname, '..', 'frontend');
@@ -248,6 +249,37 @@ function saveAdminAccount(account) {
     err.statusCode = 400;
     throw err;
   }
+
+function hashAdminPassword(password, salt) {
+  return crypto
+    .createHash('sha256')
+    .update(String(password || '') + String(salt || ''))
+    .digest('hex');
+}
+
+function requireAdminPassword(body) {
+  const password = cleanText(body && body.adminPassword);
+  const account = getAdminAccount();
+
+  if (!password) {
+    const err = new Error('Administrator password is required.');
+    err.statusCode = 401;
+    throw err;
+  }
+
+  if (!account) {
+    const err = new Error('No admin account found.');
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const hash = hashAdminPassword(password, account.salt);
+  if (hash !== account.passwordHash) {
+    const err = new Error('Incorrect password.');
+    err.statusCode = 403;
+    throw err;
+  }
+}
 
   db.prepare(`
     INSERT INTO admin_accounts (id, username, salt, password_hash, updated_at)
@@ -1274,6 +1306,8 @@ function createApp(ioRef) {
   });
 
     app.patch('/api/punches/:id', function (req, res) {
+    requireAdminPassword(req.body);
+
     const punch = updatePunch(req.params.id, req.body.action, req.body.punchedAt);
 
     broadcastDataChanged('punches-corrected', {
@@ -1287,6 +1321,8 @@ function createApp(ioRef) {
   });
 
   app.delete('/api/punches/:id', function (req, res) {
+    requireAdminPassword(req.body);
+
     const punch = deletePunch(req.params.id);
 
     broadcastDataChanged('punches-corrected', {
@@ -1363,6 +1399,8 @@ function createApp(ioRef) {
   });
 
   app.post('/api/reset-dtr', function (req, res) {
+    requireAdminPassword(req.body);
+
     clearDtrRecords();
 
     broadcastDataChanged('reset-dtr', {});
@@ -1375,6 +1413,8 @@ function createApp(ioRef) {
   });
 
   app.post('/api/reset-all', function (req, res) {
+    requireAdminPassword(req.body);
+
     clearAllRecords();
 
     broadcastDataChanged('reset-all', {});

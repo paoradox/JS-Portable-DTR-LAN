@@ -96,13 +96,17 @@
       return request('/api/punches/monthly' + query);
     },
 
-    updatePunch: function (id, punch) {
-      return json('PATCH', '/api/punches/' + encodeURIComponent(id), punch);
+    updatePunch: function (id, punch, adminPassword) {
+      return json('PATCH', '/api/punches/' + encodeURIComponent(id), {
+        action: punch.action,
+        punchedAt: punch.punchedAt,
+        adminPassword: adminPassword
+      });
     },
 
-    deletePunch: function (id) {
-      return request('/api/punches/' + encodeURIComponent(id), {
-        method: 'DELETE'
+    deletePunch: function (id, adminPassword) {
+      return json('DELETE', '/api/punches/' + encodeURIComponent(id), {
+        adminPassword: adminPassword
       });
     },
 
@@ -110,12 +114,16 @@
       return request('/api/dtr/monthly?month=' + encodeURIComponent(month || ''));
     },
 
-    resetDtr: function () {
-      return json('POST', '/api/reset-dtr', {});
+    resetDtr: function (adminPassword) {
+      return json('POST', '/api/reset-dtr', {
+        adminPassword: adminPassword
+      });
     },
 
-    resetAll: function () {
-      return json('POST', '/api/reset-all', {});
+    resetAll: function (adminPassword) {
+      return json('POST', '/api/reset-all', {
+        adminPassword: adminPassword
+      });
     },
 
     getSetting: function (key) {

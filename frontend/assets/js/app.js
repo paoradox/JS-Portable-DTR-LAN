@@ -2010,7 +2010,7 @@
         window.dtrApi.updatePunch(punchId, {
           action: action,
           punchedAt: punchedAt
-        }).then(function () {
+        }, pw).then(function () {
           hideProcessing();
           loadCorrectionRecords();
           refreshDtrStatus();
@@ -2026,13 +2026,13 @@
     function deleteCorrectedPunch(punchId) {
       if (!window.confirm('Delete this attendance record?')) return;
 
-      verifyAdminPassword(function () {
+      verifyAdminPassword(function (pw) {
         showProcessing(
           'Deleting punch...',
           'Removing the selected attendance record.'
         );
 
-        window.dtrApi.deletePunch(punchId)
+        window.dtrApi.deletePunch(punchId, pw)
           .then(function () {
             hideProcessing();
             loadCorrectionRecords();
@@ -2132,7 +2132,7 @@
       refreshDtrStatus();
     }
 
-    function doResetDtrOnly() {
+    function doResetDtrOnly(adminPassword) {
       if (!window.dtrApi || !window.dtrApi.resetDtr) {
         setStats(null);
         updateStats();
@@ -2140,12 +2140,12 @@
         return Promise.resolve();
       }
 
-      return window.dtrApi.resetDtr().then(function (data) {
+      return window.dtrApi.resetDtr(adminPassword).then(function (data) {
         applyResetResult(data);
       });
     }
 
-    function doResetAll() {
+    function doResetAll(adminPassword) {
       if (!window.dtrApi || !window.dtrApi.resetAll) {
         employees.length = 0;
         writeJson(STORAGE_KEYS.disabledIds, []);
@@ -2156,7 +2156,7 @@
         return Promise.resolve();
       }
 
-      return window.dtrApi.resetAll().then(function (data) {
+      return window.dtrApi.resetAll(adminPassword).then(function (data) {
         applyResetResult(data);
       });
     }
@@ -2191,7 +2191,7 @@
         // Verified — clear the field and proceed.
         if (backupPwEl) backupPwEl.value = '';
         showBackupNotice('', '');
-        onVerified();
+        onVerified(pw);
       }).catch(function (err) {
         showBackupNotice(
           err && err.message ? err.message : 'Password verification failed.',
@@ -2237,7 +2237,7 @@
           'Clearing attendance records while keeping employee IDs.'
         );
 
-        doResetDtrOnly()
+        doResetDtrOnly(pw)
           .then(function () {
             hideProcessing();
             window.alert('DTR attendance records were cleared. Employee IDs were kept.');
