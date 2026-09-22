@@ -439,6 +439,57 @@
                 </div>
             </div>
         </section>
+                <!-- Attendance Corrections section -->
+        <section class="attendance-corrections-section mt-4" aria-label="Attendance Corrections">
+            <div class="card">
+                <div class="card-header d-flex align-items-center gap-2">
+                    <i class="fa-solid fa-pen-to-square text-primary"></i>
+                    <span>Attendance Corrections</span>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-12 col-md-3">
+                            <label for="correctionEmpSearch" class="form-label">Employee ID</label>
+                            <input type="search" class="form-control text-uppercase" id="correctionEmpSearch"
+                                   placeholder="EMP-0001" autocomplete="off" />
+                        </div>
+                        <div class="col-12 col-md-3">
+                            <label for="correctionMonth" class="form-label">Month</label>
+                            <input type="month" class="form-control" id="correctionMonth" />
+                        </div>
+                        <div class="col-12 col-md-3">
+                            <button type="button" class="btn btn-outline-primary w-100" id="btnLoadCorrections">
+                                <i class="fa-solid fa-magnifying-glass me-2"></i>Load Records
+                            </button>
+                        </div>
+                        <div class="col-12 col-md-3">
+                            <div class="form-text" id="correctionStatus">Load one employee month at a time.</div>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive mt-3">
+                        <table class="table table-sm align-middle">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Date</th>
+                                    <th>Time</th>
+                                    <th>Action</th>
+                                    <th class="text-end">Controls</th>
+                                </tr>
+                            </thead>
+                            <tbody id="correctionTableBody">
+                                <tr>
+                                    <td colspan="5" class="text-muted text-center py-4">
+                                        No records loaded.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
     </main>
 
     <!-- Reset Password modal -->
@@ -496,9 +547,9 @@
                 <div class="modal-body">
                     <p class="mb-3">Choose an action for <strong>all records</strong>:</p>
                     <ul class="mb-3">
-                        <li><strong>Backup IDs &amp; DTR</strong> — download employee roster and attendance as a CSV file.</li>
-                        <li><strong>Reset DTR</strong> — clear all attendance records only, keeping the employee roster.</li>
-                        <li><strong>Backup &amp; Reset (All)</strong> — download employee roster and attendance as a CSV file, then clear all records.</li>
+                        <li><strong>Backup IDs &amp; DTR</strong> — download all Employee IDs, Employee photos and DTR Attendance as a ZIP file.</li>
+                        <li><strong>Reset DTR</strong> — clear all attendance records only, keeping the Employee Roster.</li>
+                        <li><strong>Backup &amp; Reset (All)</strong> — download all Employee IDs, Employee photos and DTR Attendance as a ZIP file, then clear all records.</li>
                         <li><strong>Reset (All)</strong> — clear all records without backup.</li>
                     </ul>
 
@@ -513,7 +564,7 @@
                     <div class="auth-notice" id="backupNotice" role="alert" aria-live="assertive"></div>
 
                     <p class="mb-0 mt-3 text-muted small">
-                        Backups are saved as an Excel workbook with separate sheets for Employee IDs and DTR Time Logs.
+                        Backups are saved as a ZIP file containing Employee IDs, Employee Photos and DTR Attendance.
                     </p>
                 </div>
                 <div class="modal-footer">

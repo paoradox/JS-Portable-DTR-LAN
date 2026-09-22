@@ -1893,6 +1893,185 @@
     }
 
     /* =========================================================
+       ATTENDANCE CORRECTIONS
+       ========================================================= */
+    var correctionEmpSearch = document.getElementById('correctionEmpSearch');
+    var correctionMonth = document.getElementById('correctionMonth');
+    var btnLoadCorrections = document.getElementById('btnLoadCorrections');
+    var correctionStatus = document.getElementById('correctionStatus');
+    var correctionTableBody = document.getElementById('correctionTableBody');
+    var correctionPunches = [];
+
+    function toDateTimeLocalValue(punchedAt) {
+      var value = String(punchedAt || '').trim();
+      if (!value) return '';
+      return value.replace(' ', 'T').slice(0, 16);
+    }
+
+    function setCorrectionStatus(message, kind) {
+      if (!correctionStatus) return;
+      correctionStatus.textContent = message || '';
+      correctionStatus.classList.remove('text-danger', 'text-success', 'text-muted');
+
+      if (kind === 'error') correctionStatus.classList.add('text-danger');
+      else if (kind === 'success') correctionStatus.classList.add('text-success');
+      else correctionStatus.classList.add('text-muted');
+    }
+
+    function renderCorrectionRows() {
+      if (!correctionTableBody) return;
+
+      if (!correctionPunches.length) {
+        correctionTableBody.innerHTML =
+          '<tr><td colspan="5" class="text-muted text-center py-4">No punch records found for this employee and month.</td></tr>';
+        return;
+      }
+
+      correctionTableBody.innerHTML = correctionPunches.map(function (punch) {
+        var dateTimeValue = toDateTimeLocalValue(punch.punchedAt);
+
+        return (
+          '<tr data-punch-row="' + escapeHtml(punch.id) + '">' +
+            '<td class="text-nowrap">' + escapeHtml(punch.id) + '</td>' +
+            '<td style="min-width: 170px;">' +
+              '<input type="datetime-local" class="form-control form-control-sm" ' +
+              'data-correction-time="' + escapeHtml(punch.id) + '" value="' + escapeHtml(dateTimeValue) + '" />' +
+            '</td>' +
+            '<td class="text-nowrap">' + escapeHtml(punch.punchTime || '') + '</td>' +
+            '<td style="min-width: 130px;">' +
+              '<select class="form-select form-select-sm" data-correction-action="' + escapeHtml(punch.id) + '">' +
+                '<option value="Clock In"' + (punch.action === 'Clock In' ? ' selected' : '') + '>Clock In</option>' +
+                '<option value="Clock Out"' + (punch.action === 'Clock Out' ? ' selected' : '') + '>Clock Out</option>' +
+              '</select>' +
+            '</td>' +
+            '<td class="text-end text-nowrap">' +
+              '<button type="button" class="btn btn-sm btn-primary me-1" data-save-punch="' + escapeHtml(punch.id) + '">' +
+                '<i class="fa-solid fa-floppy-disk me-1"></i>Save' +
+              '</button>' +
+              '<button type="button" class="btn btn-sm btn-outline-danger" data-delete-punch="' + escapeHtml(punch.id) + '">' +
+                '<i class="fa-solid fa-trash me-1"></i>Delete' +
+              '</button>' +
+            '</td>' +
+          '</tr>'
+        );
+      }).join('');
+    }
+
+    function loadCorrectionRecords() {
+      var emp = findEmployeeById(correctionEmpSearch ? correctionEmpSearch.value : '');
+      var monthVal = correctionMonth ? correctionMonth.value : '';
+
+      if (!emp) {
+        setCorrectionStatus('Please enter a valid employee ID.', 'error');
+        if (correctionEmpSearch) correctionEmpSearch.focus();
+        return;
+      }
+
+      if (!monthVal) {
+        setCorrectionStatus('Please select a month.', 'error');
+        if (correctionMonth) correctionMonth.focus();
+        return;
+      }
+
+      setCorrectionStatus('Loading records...', 'muted');
+
+      window.dtrApi.getMonthlyPunches(monthVal, emp.id)
+        .then(function (data) {
+          correctionPunches = data && data.punches ? data.punches : [];
+          renderCorrectionRows();
+          setCorrectionStatus('Loaded ' + correctionPunches.length + ' record(s).', 'success');
+        })
+        .catch(function (err) {
+          correctionPunches = [];
+          renderCorrectionRows();
+          setCorrectionStatus(err && err.message ? err.message : 'Could not load punch records.', 'error');
+        });
+    }
+
+    function saveCorrectedPunch(punchId) {
+      var timeEl = document.querySelector('[data-correction-time="' + punchId + '"]');
+      var actionEl = document.querySelector('[data-correction-action="' + punchId + '"]');
+
+      var punchedAt = timeEl ? timeEl.value : '';
+      var action = actionEl ? actionEl.value : '';
+
+      if (!punchedAt) {
+        window.alert('Please enter the corrected date and time.');
+        if (timeEl) timeEl.focus();
+        return;
+      }
+
+      verifyAdminPassword(function () {
+        showProcessing(
+          'Saving correction...',
+          'Updating the selected attendance record.'
+        );
+
+        window.dtrApi.updatePunch(punchId, {
+          action: action,
+          punchedAt: punchedAt
+        }).then(function () {
+          hideProcessing();
+          loadCorrectionRecords();
+          refreshDtrStatus();
+          updateStats();
+          window.alert('Attendance record updated.');
+        }).catch(function (err) {
+          hideProcessing();
+          window.alert(err && err.message ? err.message : 'Could not update attendance record.');
+        });
+      });
+    }
+
+    function deleteCorrectedPunch(punchId) {
+      if (!window.confirm('Delete this attendance record?')) return;
+
+      verifyAdminPassword(function () {
+        showProcessing(
+          'Deleting punch...',
+          'Removing the selected attendance record.'
+        );
+
+        window.dtrApi.deletePunch(punchId)
+          .then(function () {
+            hideProcessing();
+            loadCorrectionRecords();
+            refreshDtrStatus();
+            updateStats();
+            window.alert('Attendance record deleted.');
+          })
+          .catch(function (err) {
+            hideProcessing();
+            window.alert(err && err.message ? err.message : 'Could not delete attendance record.');
+          });
+      });
+    }
+
+    if (correctionEmpSearch) {
+      attachUppercase(correctionEmpSearch);
+    }
+
+    if (btnLoadCorrections) {
+      btnLoadCorrections.addEventListener('click', loadCorrectionRecords);
+    }
+
+    if (correctionTableBody) {
+      correctionTableBody.addEventListener('click', function (event) {
+        var saveBtn = event.target.closest('[data-save-punch]');
+        var deleteBtn = event.target.closest('[data-delete-punch]');
+
+        if (saveBtn) {
+          saveCorrectedPunch(saveBtn.getAttribute('data-save-punch'));
+          return;
+        }
+
+        if (deleteBtn) {
+          deleteCorrectedPunch(deleteBtn.getAttribute('data-delete-punch'));
+        }
+      });
+    }
+
+    /* =========================================================
        BACKUP & RESET MODAL (password protected)
        ========================================================= */
     var modalEl       = document.getElementById('backupResetModal');

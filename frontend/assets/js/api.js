@@ -96,6 +96,16 @@
       return request('/api/punches/monthly' + query);
     },
 
+    updatePunch: function (id, punch) {
+      return json('PATCH', '/api/punches/' + encodeURIComponent(id), punch);
+    },
+
+    deletePunch: function (id) {
+      return request('/api/punches/' + encodeURIComponent(id), {
+        method: 'DELETE'
+      });
+    },
+
     getMonthlyDtr: function (month) {
       return request('/api/dtr/monthly?month=' + encodeURIComponent(month || ''));
     },

@@ -262,6 +262,61 @@ function saveAdminAccount(account) {
   return getAdminAccount();
 }
 
+function getTodayPunchesForEmployee(employeeId) {
+  return db.prepare(`
+    SELECT
+      id,
+      employee_id AS employeeId,
+      action,
+      punched_at AS punchedAt
+    FROM punches
+    WHERE employee_id = ?
+      AND date(punched_at, 'localtime') = date('now', 'localtime')
+    ORDER BY punched_at ASC, id ASC
+  `).all(cleanText(employeeId).toUpperCase());
+}
+
+function validatePunchSequence(employeeId, action) {
+  const punches = getTodayPunchesForEmployee(employeeId);
+  const latest = punches.length ? punches[punches.length - 1] : null;
+  const clockInCount = punches.filter(function (punch) {
+    return punch.action === 'Clock In';
+  }).length;
+  const clockOutCount = punches.filter(function (punch) {
+    return punch.action === 'Clock Out';
+  }).length;
+
+  function reject(message) {
+    const err = new Error(message);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!punches.length && action === 'Clock Out') {
+    reject('First punch today must be Clock In.');
+  }
+
+  if (latest && latest.action === action) {
+    if (action === 'Clock In') {
+      reject('Already clocked in. Please choose Clock Out next.');
+    }
+
+    reject('Already clocked out. Please choose Clock In next.');
+  }
+
+  if (punches.length >= 4) {
+    reject('Daily punch limit reached.');
+  }
+
+  if (action === 'Clock In' && clockInCount >= 2) {
+    reject('Maximum Clock In records reached for today.');
+  }
+
+  if (action === 'Clock Out' && clockOutCount >= 2) {
+    reject('Maximum Clock Out records reached for today.');
+  }
+}
+
 function recordPunch(employeeId, action) {
   const id = cleanText(employeeId).toUpperCase();
   const cleanAction = cleanText(action);
@@ -285,6 +340,8 @@ function recordPunch(employeeId, action) {
     err.statusCode = 403;
     throw err;
   }
+
+  validatePunchSequence(id, cleanAction);
 
   const result = db.prepare(`
     INSERT INTO punches (employee_id, action)
@@ -358,6 +415,89 @@ function getMonthlyPunches(month, employeeId) {
       ${employeeFilter}
     ORDER BY employee_id ASC, punched_at ASC, id ASC
   `).all(...params);
+}
+
+function isValidPunchDateTime(value) {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(cleanText(value));
+}
+
+function getPunchById(id) {
+  return db.prepare(`
+    SELECT
+      id,
+      employee_id AS employeeId,
+      action,
+      punched_at AS punchedAt,
+      date(punched_at, 'localtime') AS punchDate,
+      time(punched_at, 'localtime') AS punchTime
+    FROM punches
+    WHERE id = ?
+  `).get(Number(id));
+}
+
+function updatePunch(id, action, punchedAtLocal) {
+  const punchId = Number(id);
+  const cleanAction = cleanText(action);
+  const cleanDateTime = cleanText(punchedAtLocal);
+
+  if (!Number.isInteger(punchId) || punchId <= 0) {
+    const err = new Error('Invalid punch record.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (cleanAction !== 'Clock In' && cleanAction !== 'Clock Out') {
+    const err = new Error('Punch action must be Clock In or Clock Out.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!isValidPunchDateTime(cleanDateTime)) {
+    const err = new Error('Punch date and time must be valid.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const existing = getPunchById(punchId);
+  if (!existing) {
+    const err = new Error('Punch record not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const sqliteDateTime = cleanDateTime.replace('T', ' ') + ':00';
+
+  db.prepare(`
+    UPDATE punches
+    SET action = ?, punched_at = ?
+    WHERE id = ?
+  `).run(cleanAction, sqliteDateTime, punchId);
+
+  return getPunchById(punchId);
+}
+
+function deletePunch(id) {
+  const punchId = Number(id);
+
+  if (!Number.isInteger(punchId) || punchId <= 0) {
+    const err = new Error('Invalid punch record.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const existing = getPunchById(punchId);
+  if (!existing) {
+    const err = new Error('Punch record not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  db.prepare(`
+    DELETE FROM punches
+    WHERE id = ?
+  `).run(punchId);
+
+  return existing;
 }
 
 function groupMonthlyPunchesByEmployee(month) {
@@ -1130,6 +1270,33 @@ function createApp(ioRef) {
       month: cleanText(req.query.month),
       employeeId: cleanText(req.query.employeeId).toUpperCase(),
       punches: getMonthlyPunches(req.query.month, req.query.employeeId)
+    });
+  });
+
+    app.patch('/api/punches/:id', function (req, res) {
+    const punch = updatePunch(req.params.id, req.body.action, req.body.punchedAt);
+
+    broadcastDataChanged('punches-corrected', {
+      employeeId: punch.employeeId
+    });
+
+    res.json({
+      punch: punch,
+      stats: getStats()
+    });
+  });
+
+  app.delete('/api/punches/:id', function (req, res) {
+    const punch = deletePunch(req.params.id);
+
+    broadcastDataChanged('punches-corrected', {
+      employeeId: punch.employeeId
+    });
+
+    res.json({
+      ok: true,
+      punch: punch,
+      stats: getStats()
     });
   });
 
