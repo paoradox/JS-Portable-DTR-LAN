@@ -122,7 +122,7 @@ See [BUILD.md](./BUILD.md) for full build details, port configuration, and distr
 
 ## Resetting the Database
 
-If you've lost admin credentials, want a completely clean slate, or don't have a SQLite browser tool to inspect `queue.db` directly, the simplest fix is deleting and letting it recreate itself:
+If you've lost admin credentials, want a completely clean slate, or don't have a SQLite browser tool to inspect `data.db` directly, the simplest fix is deleting and letting it recreate itself:
 
 1. Close the app (or stop `npm start`/the Electron app) completely.
 2. Delete these three files from `database/`:
