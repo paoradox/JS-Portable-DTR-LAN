@@ -82,7 +82,7 @@ Here are some screenshots from the system, showcasing its interface and key feat
 
 | Launch Server & Setup Login | Scanning & Responsive Display | Admin Controls |
 |----------------|-------------|---------------|
-| ![Launch Server & Setup Login](frontend/preview/Launcher%20Server%20%26%20Setup%20Login.png) | ![Scanning & Responsive Display](frontend/preview/Encoding%20%26%20Responsive%20Display.png) | ![Admin Controls](frontend/preview/Admin%20Controls.png) |
+| ![Launch Server & Setup Login](frontend/preview/Launch%20Server%20%26%20Setup%20Login.png) | ![Scanning & Responsive Display](frontend/preview/Scanning%20%26%20Responsive%20Display.png) | ![Admin Controls](frontend/preview/Admin%20Controls.png) |
 
 ## Running the Application
 
