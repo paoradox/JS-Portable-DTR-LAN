@@ -82,7 +82,7 @@ Here are some screenshots from the system, showcasing its interface and key feat
 
 | Launch Server & Setup Login | Scanning & Responsive Display | Admin Controls | ID & QR Generation | DTR Export |
 |----------------|-------------|---------------|---------------|---------------|
-| ![Launch Server & Setup Login](frontend/preview/Launch%20Server%20%26%20Setup%20Login.png) | ![Scanning & Responsive Display](frontend/preview/Scanning%20%26%20Responsive%20Display.png) | ![Admin Controls](frontend/preview/Admin%20Controls.png) | ![ID & QR Generation](frontend/preview/Admin%20Controls.png) | ![DTR Export](frontend/preview/Admin%20Controls.png) |
+| ![Launch Server & Setup Login](frontend/preview/Launch%20Server%20%26%20Setup%20Login.png) | ![Scanning & Responsive Display](frontend/preview/Scanning%20%26%20Responsive%20Display.png) | ![Admin Controls](frontend/preview/Admin%20Controls.png) | ![ID & QR Generation](frontend/preview/ID%20%26%20QR%20Generation.png) | ![DTR Export](frontend/preview/DTR%20Export.png) |
 
 ## Running the Application
 
