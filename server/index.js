@@ -1,5 +1,7 @@
 'use strict';
 
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
 const express = require('express');
 const http = require('http');
@@ -30,6 +32,30 @@ function cleanText(value) {
 function cleanOptionalText(value) {
   const text = cleanText(value);
   return text || null;
+}
+
+function isValidEmployeeId(value) {
+  return /^[A-Z0-9][A-Z0-9_-]{1,31}$/i.test(cleanText(value));
+}
+
+function rejectBadEmployeeId(id) {
+  if (!isValidEmployeeId(id)) {
+    const err = new Error('Employee ID format is invalid.');
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
+function makeRateLimiter(windowMs, max, message) {
+  return rateLimit({
+    windowMs: windowMs,
+    max: max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      error: message || 'Too many requests. Please try again later.'
+    }
+  });
 }
 
 function toEmployeeRow(employee) {
@@ -126,6 +152,7 @@ function saveEmployee(employee) {
   const row = toEmployeeRow(employee);
 
   if (!row.id) {
+    rejectBadEmployeeId(row.id);
     const err = new Error('Employee ID is required.');
     err.statusCode = 400;
     throw err;
@@ -184,6 +211,7 @@ function saveEmployee(employee) {
 
 function setEmployeeDisabled(id, disabled) {
   const employeeId = cleanText(id).toUpperCase();
+  rejectBadEmployeeId(employeeId);
   const existing = getEmployeeById(employeeId);
 
   if (!existing) {
@@ -303,7 +331,7 @@ function getTodayPunchesForEmployee(employeeId) {
       punched_at AS punchedAt
     FROM punches
     WHERE employee_id = ?
-      AND date(punched_at, 'localtime') = date('now', 'localtime')
+AND substr(punched_at, 1, 10) = date('now', 'localtime')
     ORDER BY punched_at ASC, id ASC
   `).all(cleanText(employeeId).toUpperCase());
 }
@@ -351,6 +379,7 @@ function validatePunchSequence(employeeId, action) {
 
 function recordPunch(employeeId, action) {
   const id = cleanText(employeeId).toUpperCase();
+  rejectBadEmployeeId(id);
   const cleanAction = cleanText(action);
 
   if (cleanAction !== 'Clock In' && cleanAction !== 'Clock Out') {
@@ -376,8 +405,8 @@ function recordPunch(employeeId, action) {
   validatePunchSequence(id, cleanAction);
 
   const result = db.prepare(`
-    INSERT INTO punches (employee_id, action)
-    VALUES (?, ?)
+    INSERT INTO punches (employee_id, action, punched_at)
+    VALUES (?, ?, datetime('now', 'localtime'))
   `).run(id, cleanAction);
 
   return db.prepare(`
@@ -408,7 +437,7 @@ function getTodayPunches() {
       action,
       punched_at AS punchedAt
     FROM punches
-    WHERE date(punched_at, 'localtime') = date('now', 'localtime')
+    WHERE substr(punched_at, 1, 10) = date('now', 'localtime')
     ORDER BY punched_at ASC, id ASC
   `).all();
 }
@@ -440,10 +469,10 @@ function getMonthlyPunches(month, employeeId) {
       employee_id AS employeeId,
       action,
       punched_at AS punchedAt,
-      date(punched_at, 'localtime') AS punchDate,
-      time(punched_at, 'localtime') AS punchTime
+    substr(punched_at, 1, 10) AS punchDate,
+    substr(punched_at, 12, 8) AS punchTime
     FROM punches
-    WHERE strftime('%Y-%m', punched_at, 'localtime') = ?
+    WHERE substr(punched_at, 1, 7) = ?
       ${employeeFilter}
     ORDER BY employee_id ASC, punched_at ASC, id ASC
   `).all(...params);
@@ -460,8 +489,8 @@ function getPunchById(id) {
       employee_id AS employeeId,
       action,
       punched_at AS punchedAt,
-      date(punched_at, 'localtime') AS punchDate,
-      time(punched_at, 'localtime') AS punchTime
+      substr(punched_at, 1, 10) AS punchDate,
+      substr(punched_at, 12, 8) AS punchTime
     FROM punches
     WHERE id = ?
   `).get(Number(id));
@@ -517,6 +546,7 @@ function validateCorrectedPunchDay(employeeId, punchDate) {
 
 function addCorrectedPunch(employeeId, action, punchedAtLocal) {
   const cleanEmployeeId = cleanText(employeeId).toUpperCase();
+  rejectBadEmployeeId(cleanEmployeeId);
   const cleanAction = cleanText(action);
   const cleanDateTime = cleanText(punchedAtLocal);
 
@@ -1301,7 +1331,30 @@ function getStats() {
 function createApp(ioRef) {
   const app = express();
 
-  app.use(express.json({ limit: '10mb' }));
+  app.disable('x-powered-by');
+
+  app.use(helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        "default-src": ["'self'"],
+        "script-src": ["'self'", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
+        "style-src": ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
+        "font-src": ["'self'", "https://cdnjs.cloudflare.com"],
+        "img-src": ["'self'", "data:", "blob:"],
+        "connect-src": ["'self'", "ws:", "wss:"]
+      }
+    }
+  }));
+
+  app.use(express.json({
+    limit: '3mb'
+  }));
+
+  const apiLimiter = makeRateLimiter(60 * 1000, 180, 'Too many API requests. Please wait a moment.');
+  const writeLimiter = makeRateLimiter(60 * 1000, 60, 'Too many write requests. Please wait a moment.');
+
+  app.use('/api/', apiLimiter);
 
   function broadcastDataChanged(type, payload) {
     if (ioRef.io) {
@@ -1340,7 +1393,7 @@ function createApp(ioRef) {
     });
   });
 
-  app.put('/api/settings/:key', function (req, res) {
+  app.put('/api/settings/:key', writeLimiter, function (req, res) {
     const value = setSetting(req.params.key, req.body.value);
 
     broadcastDataChanged('settings', {
@@ -1359,7 +1412,7 @@ function createApp(ioRef) {
     });
   });
 
-  app.put('/api/admin-account', function (req, res) {
+  app.put('/api/admin-account', writeLimiter, function (req, res) {
     const account = saveAdminAccount(req.body || {});
 
     broadcastDataChanged('admin-account', {});
@@ -1375,7 +1428,7 @@ function createApp(ioRef) {
     });
   });
 
-  app.put('/api/employees/:id', function (req, res) {
+  app.put('/api/employees/:id', writeLimiter, function (req, res) {
     const employee = saveEmployee({
       ...(req.body || {}),
       id: req.params.id
@@ -1392,7 +1445,7 @@ function createApp(ioRef) {
     });
   });
 
-  app.patch('/api/employees/:id/status', function (req, res) {
+  app.patch('/api/employees/:id/status', writeLimiter, function (req, res) {
     const employee = setEmployeeDisabled(req.params.id, Boolean(req.body.disabled));
 
     broadcastDataChanged('employees', {
@@ -1406,7 +1459,7 @@ function createApp(ioRef) {
     });
   });
 
-  app.post('/api/punches', function (req, res) {
+  app.post('/api/punches', writeLimiter, function (req, res) {
     const punch = recordPunch(req.body.employeeId, req.body.action);
 
     broadcastDataChanged('punches', {
@@ -1434,7 +1487,7 @@ function createApp(ioRef) {
     });
   });
 
-    app.post('/api/punches/correction', function (req, res) {
+    app.post('/api/punches/correction', writeLimiter, function (req, res) {
     const punch = addCorrectedPunch(req.body.employeeId, req.body.action, req.body.punchedAt);
 
     broadcastDataChanged('punches-corrected', {
@@ -1447,7 +1500,7 @@ function createApp(ioRef) {
     });
   });
 
-  app.patch('/api/punches/:id', function (req, res) {
+  app.patch('/api/punches/:id', writeLimiter, function (req, res) {
     const punch = updatePunch(req.params.id, req.body.action, req.body.punchedAt);
 
     broadcastDataChanged('punches-corrected', {
@@ -1460,7 +1513,7 @@ function createApp(ioRef) {
     });
   });
 
-  app.delete('/api/punches/:id', function (req, res) {
+  app.delete('/api/punches/:id', writeLimiter, function (req, res) {
     const punch = deletePunch(req.params.id);
 
     broadcastDataChanged('punches-corrected', {
@@ -1536,7 +1589,7 @@ function createApp(ioRef) {
     }
   });
 
-  app.post('/api/reset-dtr', function (req, res) {
+  app.post('/api/reset-dtr', writeLimiter, function (req, res) {
     requireAdminPassword(req.body);
 
     clearDtrRecords();
@@ -1550,7 +1603,7 @@ function createApp(ioRef) {
     });
   });
 
-  app.post('/api/reset-all', function (req, res) {
+  app.post('/api/reset-all', writeLimiter, function (req, res) {
     requireAdminPassword(req.body);
 
     clearAllRecords();
@@ -1588,7 +1641,7 @@ function createApp(ioRef) {
     }
 
     res.status(statusCode).json({
-      error: err.message || 'Server error.'
+      error: statusCode >= 500 ? 'Server error.' : (err.message || 'Request failed.')
     });
   });
 
