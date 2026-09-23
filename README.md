@@ -64,7 +64,6 @@ JS-Portable-DTR-LAN/
 │  ├─ events.js
 │  └─ index.js
 ├─ frontend/              ← the actual web pages
-│  ├─ assets/js/services/ ← API client, auth cache, queue cache (talks to the backend)
 │  ├─ assets/js/          ← app.js, api.js
 │  ├─ preview             ← preview screenshots of the system
 │  ├─ index.html
