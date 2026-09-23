@@ -1,10 +1,11 @@
-# JS-Portable-DTR-LAN
+# DTR Manager: Portable DTR System
 
-Portable LAN-based Daily Time Record (DTR) Manager built with Node.js, Express, SQLite, Socket.IO, Bootstrap 5, and Electron.
+[![Website](https://img.shields.io/badge/website-offline-02aaff?style=for-the-badge&logo=githubpages)](https://paoradox.github.io/)
+[![Built with](https://img.shields.io/badge/built_with-HTML%2FCSS%2FJS-02aaff?style=for-the-badge&logo=html5)](https://developer.mozilla.org/)
+
+A multi-device, LAN-based Daily Time Record (DTR) Manager built with Node.js, Express, SQLite, Socket.IO, Bootstrap 5, and Electron.
 
 This project is designed for local attendance tracking over a LAN. One host computer runs the server, and other devices on the same Wi-Fi/Ethernet network can open the attendance terminal or admin panel through a browser.
-
-Repository: [https://github.com/paoradox/JS-Portable-DTR-LAN](https://github.com/paoradox/JS-Portable-DTR-LAN)
 
 ## Features
 
@@ -34,182 +35,104 @@ Repository: [https://github.com/paoradox/JS-Portable-DTR-LAN](https://github.com
 - ZIP backup support with employee roster, DTR logs, and employee photos
 - Electron launcher with LAN URLs, page shortcuts, and changeable port
 
+## Application Pages
+
+| Page | Purpose | Login required? |
+| --- | --- | --- |
+| `index.html` | Public scanning page — Clock-In, Clock-Out | No |
+| `admin.html` | Employee management, ID and attendance resets | Yes (admin) |
+
 ## Tech Stack
 
-- HTML
-- CSS
-- JavaScript
-- Bootstrap 5
-- Node.js
-- Express
-- Socket.IO
-- SQLite via `node:sqlite`
-- ExcelJS
-- Archiver
-- Electron
-- electron-builder
-
+- **Frontend:** Plain HTML/CSS/JavaScript, Bootstrap 5 — no framework, no build step
+- **Backend:** Node.js, Express, Socket.IO
+- **Database:** SQLite via Node's built-in `node:sqlite` module (no native dependencies to compile)
+- **Auth:** bcrypt password hashing, cookie-based sessions
+- **Desktop wrapper:** Electron
+- 
 ## Project Structure
 
-~~~text
+```text
 JS-Portable-DTR-LAN/
-├─ electron/
-│  ├─ main.js
-│  ├─ preload.js
-│  └─ renderer/
-│     ├─ control.html
-│     └─ control.js
-├─ server/
-│  ├─ index.js
-│  └─ db/
-│     └─ index.js
-├─ frontend/
+├─ launcher/              ← DTRManager.exe + Electron's own runtime files (built, not hand-written)
+├─ electron/              ← the launcher's source (main.js, preload.js, control window)
+├─ server/                ← Express + Socket.IO + SQLite backend
+│  ├─ db/                 ← schema + database connection
+│  ├─ middleware/         ← session handling
+│  ├─ routes/             ← REST API endpoints
+│  ├─ services/           ← business logic (auth, data)
+│  ├─ events.js
+│  └─ index.js
+├─ frontend/              ← the actual web pages
+│  ├─ assets/js/services/ ← API client, auth cache, queue cache (talks to the backend)
+│  ├─ assets/js/          ← app.js, api.js
+│  ├─ preview             ← preview screenshots of the system
 │  ├─ index.html
 │  ├─ admin.html
-│  ├─ assets/
-│  │  ├─ css/
-│  │  ├─ js/
-│  │  └─ img/
-│  └─ template/
-│     └─ Blank_DTR_Template.xlsx
 ├─ database/
-│  └─ data.db
-├─ BUILD.md
-├─ AI_CODE++.md
+│  └─ data.db            ← created automatically on first launch
+├─ electron-settings.json ← created automatically (saved port)
 ├─ package.json
 └─ package-lock.json
-~~~
+```
 
-## Prerequisites
+## Preview
 
-Install Node.js with support for `node:sqlite`.
+Here are some screenshots from the system, showcasing its interface and key features:
 
-This project depends on Node's built-in SQLite module, so the target machine must use a compatible Node.js version.
+| Launch Server & Setup Login | Scanning & Responsive Display | Admin Controls |
+|----------------|-------------|---------------|
+| ![Launch Server & Setup Login](frontend/preview/Launcher%20Server%20%26%20Setup%20Login.png) | ![Scanning & Responsive Display](frontend/preview/Encoding%20%26%20Responsive%20Display.png) | ![Admin Controls](frontend/preview/Admin%20Controls.png) |
 
-Check your Node version:
+## Running the Application
 
-~~~powershell
-node -v
-~~~
+### Option 1 — Plain server (any OS, no desktop app)
 
-Install dependencies:
-
-~~~powershell
+```bash
 npm install
-~~~
-
-## Running the App
-
-### Plain Server Mode
-
-Runs the Express server directly:
-
-~~~powershell
 npm start
-~~~
+```
 
-Then open:
+Then open `http://localhost:3000/index.html` (or `/admin.html`) in a browser. Other devices on the same network can reach it at `http://<this-machine's-LAN-IP>:3000/...`.
 
-~~~text
-http://localhost:3000
-~~~
+### Option 2 — Desktop app, dev mode
 
-Admin panel:
-
-~~~text
-http://localhost:3000/admin.html
-~~~
-
-### Electron Dev Mode
-
-Runs the same server through the Electron launcher:
-
-~~~powershell
+```bash
+npm install
 npm run electron
-~~~
+```
 
-The launcher window shows:
+Opens the same server inside an Electron control window, showing your LAN connection URLs and shortcuts to the Display/Admin pages, without needing to build anything.
 
-- current port
-- local URL
-- LAN URLs
-- shortcut buttons
-- port changer
+### Option 3 — Built windows desktop app (`DTRManager.exe`)
 
-## Building the Portable Launcher
+Prerequisites: Node.js 22.5.0 or newer (`node -v` to check).
 
-Before building, run syntax checks:
-
-~~~powershell
-node --check server\index.js
-node --check frontend\assets\js\api.js
-node --check frontend\assets\js\app.js
-node --check electron\main.js
-node --check electron\preload.js
-node --check electron\renderer\control.js
-~~~
-
-Test Electron:
-
-~~~powershell
-npm run electron
-~~~
-
-Build:
-
-~~~powershell
+```powershell
+npm install
 npm run dist
-~~~
-
-The build output is created in:
-
-~~~text
-dist\win-unpacked\
-~~~
-
-Recommended: move the build output into a `launcher/` folder:
-
-~~~powershell
 New-Item -ItemType Directory -Force -Path launcher
 Move-Item dist\win-unpacked\* launcher\
-~~~
+```
 
-Run the built launcher:
+Then double-click `launcher\DTRManager.exe`. This produces the layout shown in [Project Structure](#project-structure) above.
 
-~~~text
-launcher\DTRManager.exe
-~~~
+**Editing `server/` or `frontend/` after building never requires a rebuild** — the exe reads them live from disk. You only need to run `npm run dist` again if you change files inside `electron/` itself.
 
-For more detail, see:
+See [BUILD.md](./BUILD.md) for full build details, port configuration, and distributing the app to another machine.
 
-~~~text
-BUILD.md
-~~~
+## Resetting the Database
 
-## Portable App Layout
+If you've lost admin credentials, want a completely clean slate, or don't have a SQLite browser tool to inspect `queue.db` directly, the simplest fix is deleting and letting it recreate itself:
 
-Recommended final layout:
+1. Close the app (or stop `npm start`/the Electron app) completely.
+2. Delete these three files from `database/`:
+   - `data.db`
+   - `data.db-shm`
+   - `data.db-wal`
+3. Restart the app. A fresh, empty database is created automatically, and you'll be prompted to create a new admin account on first launch (the same first-run setup screen you saw the very first time).
 
-~~~text
-JS-Portable-DTR-LAN/
-├─ launcher/
-│  ├─ DTRManager.exe
-│  ├─ resources/
-│  ├─ locales/
-│  └─ Electron runtime files
-├─ electron/
-├─ server/
-├─ frontend/
-├─ database/
-├─ node_modules/
-├─ app-settings.json
-├─ package.json
-└─ package-lock.json
-~~~
-
-The launcher does not contain a private copy of the app. It finds the real project folder by searching upward for `server/index.js`.
-
-That means ordinary app changes do not require rebuilding.
+This wipes all users, queue history, and the audit log — there's no partial/selective reset via file deletion. If you only need to fix one forgotten password rather than start over completely, see the direct-database-edit method in this repo's project history/documentation instead.
 
 ## When to Rebuild
 
@@ -222,24 +145,6 @@ That means ordinary app changes do not require rebuilding.
 | `electron/preload.js` | Yes. Run `npm run dist`. |
 | `electron/renderer/*` | Yes. Run `npm run dist`. |
 | `package.json` dependencies | Run `npm install`; rebuild only if Electron files changed. |
-
-## Available Commands
-
-| Command | Description |
-|---|---|
-| `npm start` | Start the Express server directly. |
-| `npm run dev` | Start the Express server directly. |
-| `npm run electron` | Start the app through Electron. |
-| `npm run dist` | Build the Electron launcher folder. |
-
-## Main Pages
-
-| Page | URL |
-|---|---|
-| Attendance Terminal | `http://localhost:3000/index.html` |
-| Admin Panel | `http://localhost:3000/admin.html` |
-
-The launcher also shows LAN URLs for other devices on the same network.
 
 ## Attendance Flow
 
@@ -322,58 +227,6 @@ Employee IDs.xlsx
 DTR Time Logs.xlsx
 photos/
 ~~~
-
-## Resetting the Database
-
-### Reset From the App
-
-Use the Admin Panel:
-
-~~~text
-Backup & Reset
-~~~
-
-Available reset options:
-
-- Reset DTR
-- Backup & Reset All
-- Reset All
-
-### Manual Reset
-
-Stop the server/app first.
-
-Then delete:
-
-~~~text
-database\data.db
-~~~
-
-Start the app again:
-
-~~~powershell
-npm start
-~~~
-
-The database file is recreated automatically.
-
-Use manual reset only when you intentionally want a fresh database.
-
-## Local Data
-
-The SQLite database is stored here:
-
-~~~text
-database\data.db
-~~~
-
-Launcher settings are stored here:
-
-~~~text
-app-settings.json
-~~~
-
-`app-settings.json` is created automatically after first launch and stores the selected port.
 
 ## Distributing to Another Machine
 
@@ -462,12 +315,4 @@ Recommended operational practices:
 
 ## License
 
-No license specified.
-
-## Author
-
-Repository owner: [paoradox](https://github.com/paoradox)
-
-Project repository:
-
-[https://github.com/paoradox/JS-Portable-DTR-LAN](https://github.com/paoradox/JS-Portable-DTR-LAN)
+Apache License 2.0
