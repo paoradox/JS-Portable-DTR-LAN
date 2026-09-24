@@ -58,10 +58,6 @@ JS-Portable-DTR-LAN/
 ├─ electron/              ← the launcher's source (main.js, preload.js, control window)
 ├─ server/                ← Express + Socket.IO + SQLite backend
 │  ├─ db/                 ← schema + database connection
-│  ├─ middleware/         ← session handling
-│  ├─ routes/             ← REST API endpoints
-│  ├─ services/           ← business logic (auth, data)
-│  ├─ events.js
 │  └─ index.js
 ├─ frontend/              ← the actual web pages
 │  ├─ assets/js/          ← app.js, api.js
@@ -69,7 +65,7 @@ JS-Portable-DTR-LAN/
 │  ├─ index.html
 │  ├─ admin.html
 ├─ database/
-│  └─ data.db            ← created automatically on first launch
+│  └─ data.db             ← created automatically on first launch
 ├─ electron-settings.json ← created automatically (saved port)
 ├─ package.json
 └─ package-lock.json
