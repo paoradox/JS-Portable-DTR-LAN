@@ -306,7 +306,7 @@ Recommended operational practices:
 - do not expose the server directly to the public internet
 - keep regular backups
 - protect access to the host computer
-- keep Node.js updated 
+- keep Node.js updated
 
 ## License
 
