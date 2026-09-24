@@ -49,7 +49,7 @@ This project is designed for local attendance tracking over a LAN. One host comp
 - **Database:** SQLite via Node's built-in `node:sqlite` module (no native dependencies to compile)
 - **Auth:** bcrypt password hashing, cookie-based sessions
 - **Desktop wrapper:** Electron
-- 
+
 ## Project Structure
 
 ```text
